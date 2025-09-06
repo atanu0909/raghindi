@@ -100,7 +100,8 @@ venv.bak/
 dmypy.json
 
 # Streamlit
-.streamlit/
+.streamlit/secrets.toml
+.streamlit/credentials.toml
 
 # API Keys and secrets
 *.key
