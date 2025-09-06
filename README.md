@@ -1,14 +1,35 @@
 # PDF Question Generator
 
-A Streamlit web application that generates innovative questions from PDF documents using Google's Gemini AI.
+A Streamlit web application that generates customized questions from PDF documents using Google's Gemini AI.
 
 ## Features
 
-- 📚 Upload PDF documents
+- 📚 Upload PDF documents (up to 200MB)
 - 🤖 AI-powered question generation using Google Gemini
-- ⚙️ Customizable difficulty levels and question count
-- 🌍 Multi-language support
+- 📝 **Multiple Question Types:**
+  - Multiple Choice Questions (MCQs) - 1 mark each
+  - Short Answer Questions - 2-3 marks each
+  - Medium Answer Questions - 5 marks each
+  - Long Answer Questions - 10+ marks each
+  - Case Study/Application Questions - Variable marks
+- 🎯 **Quick Presets:**
+  - Exam Paper (Mixed questions)
+  - Practice Set (MCQ focused)
+  - Assignment (Long answer focused)
+  - Quiz (Short & MCQ)
+  - Custom configuration
+- ⚙️ **Customizable Settings:**
+  - Difficulty level distribution
+  - Question count for each type
+  - Mark allocation display
+  - Sample answers/hints option
+- 🌍 **Multi-language Support:**
+  - Maintain original document language
+  - English only
+  - Hindi only
+  - Bilingual (English + Hindi)
 - 💾 Download generated questions as text files
+- 📊 Real-time question count and mark estimation
 
 ## How to Deploy to Streamlit Cloud
 

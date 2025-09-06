@@ -62,21 +62,53 @@ def pdf_to_images(pdf_file):
         st.error(f"Error processing PDF: {str(e)}")
         return []
 
-def generate_questions(images, difficulty_level, num_questions, language_instruction):
+def generate_questions(images, mcq_count, short_count, medium_count, long_count, case_study_count, difficulty_level, language_instruction, include_answers, include_marks):
     """Generate questions from PDF images using Gemini"""
     try:
         model = configure_gemini()
         
-        # Create dynamic prompt based on user inputs
-        prompt = f"""Generate {num_questions} innovative questions from the PDF content with the following specifications:
+        # Build question specification
+        question_specs = []
+        total_questions = mcq_count + short_count + medium_count + long_count + case_study_count
         
-        Difficulty Level: {difficulty_level}
-        Language: {language_instruction}
+        if mcq_count > 0:
+            question_specs.append(f"- {mcq_count} Multiple Choice Questions (4 options each, 1 mark each)")
+        if short_count > 0:
+            question_specs.append(f"- {short_count} Short Answer Questions (2-3 marks each)")
+        if medium_count > 0:
+            question_specs.append(f"- {medium_count} Medium Answer Questions (5 marks each)")
+        if long_count > 0:
+            question_specs.append(f"- {long_count} Long Answer Questions (10+ marks each)")
+        if case_study_count > 0:
+            question_specs.append(f"- {case_study_count} Case Study/Application Questions (variable marks)")
         
-        Please structure the questions clearly and maintain the original language of the document when possible.
-        Make sure the questions are diverse and cover different aspects of the content."""
+        # Create comprehensive prompt
+        prompt = f"""Generate exactly {total_questions} innovative questions from the PDF content with the following specifications:
+
+QUESTION DISTRIBUTION:
+{chr(10).join(question_specs)}
+
+DIFFICULTY LEVEL: {difficulty_level}
+LANGUAGE: {language_instruction}
+
+FORMATTING REQUIREMENTS:
+- Clearly separate each question type with headings
+- Number all questions sequentially
+- {"Include mark allocation for each question" if include_marks else "Focus on content quality"}
+- {"Provide sample answers, hints, or marking schemes" if include_answers else "Questions only"}
+
+CONTENT GUIDELINES:
+- Ensure questions cover different aspects of the document
+- Make questions thought-provoking and comprehensive
+- For MCQs: Provide 4 clear options with one correct answer
+- For short answers: Focus on key concepts and definitions
+- For medium answers: Require explanations and analysis
+- For long answers: Demand critical thinking and detailed responses
+- For case studies: Create practical application scenarios
+
+Please structure the output clearly with proper headings and numbering."""
         
-        with st.spinner("🤖 Generating questions with AI..."):
+        with st.spinner("🤖 Generating customized questions with AI..."):
             response = model.generate_content([prompt] + images)
         
         return response.text
@@ -90,25 +122,111 @@ def generate_questions(images, difficulty_level, num_questions, language_instruc
 with st.sidebar:
     st.header("⚙️ Configuration")
     
-    # Question settings
-    difficulty_level = st.selectbox(
-        "Difficulty Level",
-        ["Mixed (Easy, Medium, Hard)", "Easy only", "Medium only", "Hard only"],
+    # Quick Presets
+    st.subheader("🎯 Quick Presets")
+    preset = st.selectbox(
+        "Choose a preset or customize below:",
+        ["Custom", "Exam Paper (Mixed)", "Practice Set (MCQ Focus)", "Assignment (Long Answer Focus)", "Quiz (Short & MCQ)"],
         index=0
     )
     
-    num_questions = st.slider(
-        "Number of Questions",
-        min_value=5,
-        max_value=50,
-        value=30,
-        step=5
+    # Set default values based on preset
+    if preset == "Exam Paper (Mixed)":
+        default_mcq, default_short, default_medium, default_long, default_case = 10, 8, 5, 3, 2
+    elif preset == "Practice Set (MCQ Focus)":
+        default_mcq, default_short, default_medium, default_long, default_case = 15, 5, 3, 0, 0
+    elif preset == "Assignment (Long Answer Focus)":
+        default_mcq, default_short, default_medium, default_long, default_case = 2, 3, 5, 8, 3
+    elif preset == "Quiz (Short & MCQ)":
+        default_mcq, default_short, default_medium, default_long, default_case = 12, 10, 0, 0, 0
+    else:  # Custom
+        default_mcq, default_short, default_medium, default_long, default_case = 5, 8, 5, 3, 2
+    
+    # Question Type Configuration
+    st.subheader("📝 Question Types & Distribution")
+    
+    # MCQ Questions
+    mcq_count = st.number_input(
+        "Multiple Choice Questions (MCQs)",
+        min_value=0,
+        max_value=20,
+        value=default_mcq,
+        help="Number of multiple choice questions"
     )
     
-    language_instruction = st.text_input(
-        "Language Instruction",
-        value="Maintain the language in which the document is given",
-        help="Specify how to handle the language of questions"
+    # Short Answer Questions
+    short_count = st.number_input(
+        "Short Answer Questions (2-3 marks)",
+        min_value=0,
+        max_value=15,
+        value=default_short,
+        help="Brief questions worth 2-3 marks each"
+    )
+    
+    # Medium Answer Questions
+    medium_count = st.number_input(
+        "Medium Answer Questions (5 marks)",
+        min_value=0,
+        max_value=10,
+        value=default_medium,
+        help="Detailed questions worth 5 marks each"
+    )
+    
+    # Long Answer Questions
+    long_count = st.number_input(
+        "Long Answer Questions (10+ marks)",
+        min_value=0,
+        max_value=8,
+        value=default_long,
+        help="Essay-type questions worth 10+ marks each"
+    )
+    
+    # Case Study/Application Questions
+    case_study_count = st.number_input(
+        "Case Study/Application Questions",
+        min_value=0,
+        max_value=5,
+        value=default_case,
+        help="Real-world application and case study questions"
+    )
+    
+    # Calculate total questions
+    total_questions = mcq_count + short_count + medium_count + long_count + case_study_count
+    
+    # Calculate estimated marks
+    estimated_marks = (mcq_count * 1) + (short_count * 2.5) + (medium_count * 5) + (long_count * 12) + (case_study_count * 8)
+    
+    st.info(f"📊 Total Questions: {total_questions}")
+    st.info(f"📈 Estimated Total Marks: {estimated_marks:.0f}")
+    
+    # Difficulty Distribution
+    st.subheader("🎯 Difficulty Distribution")
+    difficulty_level = st.selectbox(
+        "Overall Difficulty Mix",
+        ["Balanced (Easy:Medium:Hard = 4:4:2)", "Easy Focus (6:3:1)", "Medium Focus (3:5:2)", "Hard Focus (2:3:5)", "Custom"],
+        index=0
+    )
+    
+    # Language and Format Settings
+    st.subheader("🌍 Language & Format")
+    language_instruction = st.selectbox(
+        "Language Preference",
+        ["Maintain original document language", "English only", "Hindi only", "Bilingual (English + Hindi)"],
+        index=0,
+        help="Choose the language for generated questions"
+    )
+    
+    # Additional formatting options
+    include_answers = st.checkbox(
+        "Include Sample Answers/Hints",
+        value=False,
+        help="Generate sample answers or hints for questions"
+    )
+    
+    include_marks = st.checkbox(
+        "Show Mark Distribution",
+        value=True,
+        help="Display marks for each question"
     )
 
 # ==========================
@@ -125,46 +243,72 @@ if uploaded_file is not None:
     # Display file info
     st.success(f"✅ Uploaded: {uploaded_file.name}")
     
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.info(f"📄 File size: {len(uploaded_file.getvalue()) / 1024:.1f} KB")
-    
-    with col2:
-        if st.button("🚀 Generate Questions", type="primary"):
-            # Convert PDF to images
-            with st.spinner("📖 Processing PDF..."):
-                pdf_images = pdf_to_images(uploaded_file)
+    # Show question configuration summary
+    if total_questions > 0:
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.info(f"📄 File size: {len(uploaded_file.getvalue()) / 1024:.1f} KB")
             
-            if pdf_images:
-                st.success(f"✅ Converted {len(pdf_images)} pages to images")
+            # Display question breakdown
+            question_breakdown = []
+            if mcq_count > 0:
+                question_breakdown.append(f"📝 {mcq_count} MCQs")
+            if short_count > 0:
+                question_breakdown.append(f"✏️ {short_count} Short (2-3 marks)")
+            if medium_count > 0:
+                question_breakdown.append(f"📋 {medium_count} Medium (5 marks)")
+            if long_count > 0:
+                question_breakdown.append(f"📃 {long_count} Long (10+ marks)")
+            if case_study_count > 0:
+                question_breakdown.append(f"🎯 {case_study_count} Case Studies")
+            
+            st.info(f"🎯 Question Plan: {' | '.join(question_breakdown)}")
+        
+        with col2:
+            if st.button("🚀 Generate Questions", type="primary", use_container_width=True):
+                # Convert PDF to images
+                with st.spinner("📖 Processing PDF..."):
+                    pdf_images = pdf_to_images(uploaded_file)
                 
-                # Generate questions
-                questions = generate_questions(
-                    pdf_images, 
-                    difficulty_level, 
-                    num_questions, 
-                    language_instruction
-                )
-                
-                if questions:
-                    # Display results
-                    st.markdown("---")
-                    st.header("📝 Generated Questions")
+                if pdf_images:
+                    st.success(f"✅ Converted {len(pdf_images)} pages to images")
                     
-                    # Create expandable sections for better organization
-                    with st.expander("📋 View All Questions", expanded=True):
-                        st.markdown(questions)
-                    
-                    # Download option
-                    st.download_button(
-                        label="💾 Download Questions as Text",
-                        data=questions,
-                        file_name=f"questions_{uploaded_file.name.replace('.pdf', '.txt')}",
-                        mime="text/plain"
+                    # Generate questions
+                    questions = generate_questions(
+                        pdf_images, 
+                        mcq_count,
+                        short_count,
+                        medium_count,
+                        long_count,
+                        case_study_count,
+                        difficulty_level, 
+                        language_instruction,
+                        include_answers,
+                        include_marks
                     )
-            else:
-                st.error("❌ Failed to process PDF. Please try again with a different file.")
+                    
+                    if questions:
+                        # Display results
+                        st.markdown("---")
+                        st.header("📝 Generated Questions")
+                        
+                        # Create expandable sections for better organization
+                        with st.expander("📋 View All Questions", expanded=True):
+                            st.markdown(questions)
+                        
+                        # Download option
+                        st.download_button(
+                            label="💾 Download Questions as Text",
+                            data=questions,
+                            file_name=f"questions_{uploaded_file.name.replace('.pdf', '.txt')}",
+                            mime="text/plain",
+                            use_container_width=True
+                        )
+                else:
+                    st.error("❌ Failed to process PDF. Please try again with a different file.")
+    else:
+        st.warning("⚠️ Please configure at least one type of question in the sidebar.")
 
 # ==========================
 # Footer
