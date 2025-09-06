@@ -34,6 +34,9 @@ if 'evaluation_result' not in st.session_state:
 # Page navigation
 page = st.sidebar.selectbox("📋 Select Mode", ["📝 Generate Questions", "🎯 Take Exam", "📊 View Results"])
 
+# Debug mode toggle
+debug_mode = st.sidebar.checkbox("🔧 Debug Mode", help="Show additional debugging information")
+
 st.title("📚 PDF Question Generator & Exam System")
 
 if page == "📝 Generate Questions":
@@ -42,6 +45,42 @@ elif page == "🎯 Take Exam":
     st.markdown("Take an exam on previously generated questions!")
 else:
     st.markdown("View your exam results and performance analysis!")
+
+# Debug information
+if debug_mode:
+    with st.sidebar.expander("🔧 Debug Info"):
+        st.write("Session State:")
+        st.write(f"- Questions data available: {st.session_state.questions_data is not None}")
+        st.write(f"- Exam submitted: {st.session_state.exam_submitted}")
+        st.write(f"- Answers count: {len(st.session_state.exam_answers)}")
+        st.write(f"- Evaluation available: {st.session_state.evaluation_result is not None}")
+        
+        if st.session_state.questions_data:
+            st.write(f"- Total questions: {len(st.session_state.questions_data.get('questions', []))}")
+        
+        # Quick test data button
+        if st.button("🧪 Load Test Data"):
+            st.session_state.questions_data = {
+                "questions": [
+                    {
+                        "id": 1,
+                        "type": "mcq",
+                        "question": "What is the capital of France?",
+                        "options": ["A) London", "B) Berlin", "C) Paris", "D) Madrid"],
+                        "correct_answer": "C",
+                        "marks": 1,
+                        "sample_answer": "Paris is the capital city of France."
+                    },
+                    {
+                        "id": 2,
+                        "type": "short",
+                        "question": "Explain the concept of gravity.",
+                        "marks": 3,
+                        "sample_answer": "Gravity is a fundamental force of nature that attracts objects with mass toward each other."
+                    }
+                ]
+            }
+            st.success("Test data loaded!")
 
 # ==========================
 # Configure Gemini API
@@ -176,11 +215,29 @@ Make questions comprehensive and varied."""
             
             # Try to parse JSON data
             try:
-                exam_data = json.loads(exam_response.text.strip())
-                st.session_state.questions_data = exam_data
-            except:
-                st.warning("⚠️ Could not create exam data. Exam mode will not be available.")
+                # Clean up the response to extract JSON
+                response_text = exam_response.text.strip()
+                
+                # Look for JSON content between curly braces
+                if '{' in response_text and '}' in response_text:
+                    json_start = response_text.find('{')
+                    json_end = response_text.rfind('}') + 1
+                    json_text = response_text[json_start:json_end]
+                    exam_data = json.loads(json_text)
+                    st.session_state.questions_data = exam_data
+                    st.success("✅ Exam data created successfully!")
+                else:
+                    raise ValueError("No JSON found in response")
+                    
+            except (json.JSONDecodeError, ValueError) as e:
+                st.warning(f"⚠️ Could not create structured exam data: {str(e)}")
+                st.info("📝 Questions generated for display only. Exam mode will not be available.")
                 st.session_state.questions_data = None
+                
+                # Show debug info
+                with st.expander("🔧 Debug Info (Click to expand)"):
+                    st.text("Raw AI Response for Exam Data:")
+                    st.text(exam_response.text[:1000] + "..." if len(exam_response.text) > 1000 else exam_response.text)
         
         return display_response.text
     except Exception as e:
@@ -207,21 +264,33 @@ def evaluate_exam_answers(questions_data, user_answers, answer_images=None):
             
             if q_type == "mcq":
                 # MCQ evaluation
-                correct_answer = question['correct_answer']
-                is_correct = user_answer.upper() == correct_answer.upper()
-                marks_obtained = q_marks if is_correct else 0
-                obtained_marks += marks_obtained
-                
-                evaluation_data.append({
-                    "question_id": q_id,
-                    "question": question['question'],
-                    "type": q_type,
-                    "user_answer": user_answer,
-                    "correct_answer": correct_answer,
-                    "marks_obtained": marks_obtained,
-                    "total_marks": q_marks,
-                    "is_correct": is_correct
-                })
+                correct_answer = question.get('correct_answer', '').strip()
+                if correct_answer:
+                    is_correct = user_answer.upper() == correct_answer.upper()
+                    marks_obtained = q_marks if is_correct else 0
+                    obtained_marks += marks_obtained
+                    
+                    evaluation_data.append({
+                        "question_id": q_id,
+                        "question": question['question'],
+                        "type": q_type,
+                        "user_answer": user_answer,
+                        "correct_answer": correct_answer,
+                        "marks_obtained": marks_obtained,
+                        "total_marks": q_marks,
+                        "is_correct": is_correct
+                    })
+                else:
+                    # If no correct answer is provided, treat as subjective
+                    evaluation_data.append({
+                        "question_id": q_id,
+                        "question": question['question'],
+                        "type": q_type,
+                        "user_answer": user_answer,
+                        "sample_answer": question.get('sample_answer', ''),
+                        "total_marks": q_marks,
+                        "needs_ai_evaluation": True
+                    })
             else:
                 # Subjective question - need AI evaluation
                 evaluation_data.append({
@@ -238,71 +307,105 @@ def evaluate_exam_answers(questions_data, user_answers, answer_images=None):
         subjective_questions = [q for q in evaluation_data if q.get('needs_ai_evaluation')]
         
         if subjective_questions:
-            evaluation_prompt = f"""You are an expert examiner. Evaluate the following answers and provide marks out of the total allocated marks.
+            evaluation_prompt = f"""You are an expert examiner. Evaluate the following student answers and provide marks out of the total allocated marks.
 
 EVALUATION CRITERIA:
-- Accuracy of content
-- Completeness of answer
-- Understanding of concepts
-- Clarity of explanation
-- Relevance to the question
+- Accuracy of content (40%)
+- Completeness of answer (30%)
+- Understanding of concepts (20%)
+- Clarity of explanation (10%)
 
-For each answer, provide:
-1. Marks obtained out of total marks
-2. Brief feedback explaining the scoring
-3. Areas for improvement
+For each answer, provide marks as a number between 0 and the total marks allocated.
 
 QUESTIONS AND ANSWERS TO EVALUATE:
 """
             
-            for q in subjective_questions:
+            for i, q in enumerate(subjective_questions, 1):
                 evaluation_prompt += f"""
-Question {q['question_id']}: {q['question']}
+--- Question {i} ---
+Question ID: {q['question_id']}
+Question: {q['question']}
 Total Marks: {q['total_marks']}
 Sample Answer: {q['sample_answer']}
 Student Answer: {q['user_answer']}
----"""
+"""
             
             evaluation_prompt += """
 
-Respond in JSON format:
+Respond ONLY in this JSON format (no other text):
 {
     "evaluations": [
         {
             "question_id": 1,
-            "marks_obtained": 7,
-            "feedback": "Good understanding but missing key points...",
-            "suggestions": "Include more examples..."
+            "marks_obtained": 7.5,
+            "feedback": "Good understanding but missing key points about...",
+            "suggestions": "Include more examples and explain the concept of..."
         }
     ]
 }
 """
             
-            with st.spinner("🤖 AI is evaluating your answers..."):
-                eval_response = model.generate_content(evaluation_prompt)
-                
+            with st.spinner("🤖 AI is evaluating your subjective answers..."):
                 try:
-                    eval_result = json.loads(eval_response.text.strip())
+                    eval_response = model.generate_content(evaluation_prompt)
+                    response_text = eval_response.text.strip()
                     
-                    # Update evaluation data with AI scores
-                    for eval_item in eval_result.get('evaluations', []):
-                        q_id = eval_item['question_id']
-                        marks = eval_item['marks_obtained']
-                        obtained_marks += marks
+                    # Try to extract JSON from the response
+                    if '{' in response_text and '}' in response_text:
+                        json_start = response_text.find('{')
+                        json_end = response_text.rfind('}') + 1
+                        json_text = response_text[json_start:json_end]
+                        eval_result = json.loads(json_text)
                         
-                        # Find and update the corresponding question
-                        for i, q in enumerate(evaluation_data):
-                            if q['question_id'] == q_id and q.get('needs_ai_evaluation'):
+                        # Update evaluation data with AI scores
+                        for eval_item in eval_result.get('evaluations', []):
+                            q_id = eval_item['question_id']
+                            marks = float(eval_item.get('marks_obtained', 0))
+                            obtained_marks += marks
+                            
+                            # Find and update the corresponding question
+                            for i, q in enumerate(evaluation_data):
+                                if q['question_id'] == q_id and q.get('needs_ai_evaluation'):
+                                    evaluation_data[i].update({
+                                        'marks_obtained': marks,
+                                        'feedback': eval_item.get('feedback', 'Good attempt'),
+                                        'suggestions': eval_item.get('suggestions', ''),
+                                        'needs_ai_evaluation': False
+                                    })
+                                    break
+                    else:
+                        # Fallback: Give partial marks for answered questions
+                        st.warning("AI evaluation incomplete. Using fallback scoring.")
+                        for q in subjective_questions:
+                            fallback_marks = q['total_marks'] * 0.6 if q['user_answer'] else 0
+                            obtained_marks += fallback_marks
+                            
+                            for i, eval_q in enumerate(evaluation_data):
+                                if eval_q['question_id'] == q['question_id'] and eval_q.get('needs_ai_evaluation'):
+                                    evaluation_data[i].update({
+                                        'marks_obtained': fallback_marks,
+                                        'feedback': 'Answer provided - partial credit given',
+                                        'suggestions': 'Detailed evaluation was not available',
+                                        'needs_ai_evaluation': False
+                                    })
+                                    break
+                                    
+                except (json.JSONDecodeError, KeyError, ValueError) as e:
+                    st.warning(f"AI evaluation error: {str(e)}. Using fallback scoring.")
+                    # Fallback scoring for subjective questions
+                    for q in subjective_questions:
+                        fallback_marks = q['total_marks'] * 0.6 if q['user_answer'] else 0
+                        obtained_marks += fallback_marks
+                        
+                        for i, eval_q in enumerate(evaluation_data):
+                            if eval_q['question_id'] == q['question_id'] and eval_q.get('needs_ai_evaluation'):
                                 evaluation_data[i].update({
-                                    'marks_obtained': marks,
-                                    'feedback': eval_item.get('feedback', ''),
-                                    'suggestions': eval_item.get('suggestions', ''),
+                                    'marks_obtained': fallback_marks,
+                                    'feedback': 'Answer provided - partial credit given',
+                                    'suggestions': 'Please review the sample answer for improvement',
                                     'needs_ai_evaluation': False
                                 })
                                 break
-                                
-                except json.JSONDecodeError:
-                    st.error("Could not parse AI evaluation. Manual review needed.")
         
         # Calculate final results
         percentage = (obtained_marks / total_marks) * 100 if total_marks > 0 else 0
@@ -565,6 +668,9 @@ elif page == "🎯 Take Exam":
         # Display questions and collect answers
         if not st.session_state.exam_submitted:
             with st.form("exam_form"):
+                # Initialize exam answers dict for this session
+                form_answers = {}
+                
                 for i, question in enumerate(questions):
                     q_id = question['id']
                     q_type = question['type']
@@ -577,14 +683,20 @@ elif page == "🎯 Take Exam":
                     if q_type == "mcq":
                         # Multiple choice question
                         options = question.get('options', [])
-                        user_answer = st.radio(
-                            f"Select your answer for Q{q_id}:",
-                            options,
-                            key=f"q_{q_id}",
-                            index=None
-                        )
-                        if user_answer:
-                            st.session_state.exam_answers[str(q_id)] = user_answer[0]  # Get A, B, C, D
+                        if options:
+                            user_answer = st.radio(
+                                f"Select your answer for Q{q_id}:",
+                                options,
+                                key=f"q_{q_id}",
+                                index=None
+                            )
+                            # Store the answer in form_answers for submission
+                            if user_answer:
+                                # Extract just the letter (A, B, C, D) from the option
+                                answer_letter = user_answer.split(')')[0].strip()
+                                form_answers[str(q_id)] = answer_letter
+                        else:
+                            st.error(f"No options available for Question {q_id}")
                     else:
                         # Text answer question
                         if q_type == "short":
@@ -609,8 +721,9 @@ elif page == "🎯 Take Exam":
                                 placeholder="Write your comprehensive answer here..."
                             )
                         
-                        if answer:
-                            st.session_state.exam_answers[str(q_id)] = answer
+                        # Store the answer in form_answers for submission
+                        if answer and answer.strip():
+                            form_answers[str(q_id)] = answer.strip()
                     
                     st.markdown("---")
                 
@@ -618,9 +731,15 @@ elif page == "🎯 Take Exam":
                 submitted = st.form_submit_button("🚀 Submit Exam", type="primary")
                 
                 if submitted:
-                    if len(st.session_state.exam_answers) == 0:
+                    if len(form_answers) == 0:
                         st.error("Please answer at least one question before submitting.")
                     else:
+                        # Update session state with form answers
+                        st.session_state.exam_answers = form_answers
+                        
+                        # Show submission progress
+                        st.info(f"📝 Submitted {len(form_answers)} out of {len(questions)} questions")
+                        
                         # Evaluate answers
                         with st.spinner("🤖 Evaluating your exam..."):
                             evaluation = evaluate_exam_answers(
@@ -632,12 +751,23 @@ elif page == "🎯 Take Exam":
                             if evaluation:
                                 st.session_state.evaluation_result = evaluation
                                 st.session_state.exam_submitted = True
-                                st.success("✅ Exam submitted successfully!")
+                                st.success("✅ Exam submitted and evaluated successfully!")
+                                time.sleep(2)  # Brief pause for user to see success message
                                 st.rerun()
+                            else:
+                                st.error("❌ Error during evaluation. Please try again.")
         else:
             st.success("✅ Exam completed! Check your results in the 'View Results' section.")
-            if st.button("📊 View Results"):
-                st.rerun()
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📊 View Results", use_container_width=True):
+                    st.rerun()
+            with col2:
+                if st.button("🔄 Retake Exam", use_container_width=True):
+                    st.session_state.exam_submitted = False
+                    st.session_state.exam_answers = {}
+                    st.session_state.evaluation_result = None
+                    st.rerun()
 
 # ==========================
 # PAGE 3: VIEW RESULTS
