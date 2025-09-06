@@ -1,10 +1,11 @@
-# PDF Question Generator
+# PDF Question Generator & Exam System
 
-A Streamlit web application that generates customized questions from PDF documents using Google's Gemini AI.
+A comprehensive Streamlit web application that generates customized questions from PDF documents using Google's Gemini AI and provides an interactive exam-taking experience with AI-powered evaluation.
 
-## Features
+## 🌟 Features
 
-- 📚 Upload PDF documents (up to 200MB)
+### 📚 Question Generation
+- Upload PDF documents (up to 200MB)
 - 🤖 AI-powered question generation using Google Gemini
 - 📝 **Multiple Question Types:**
   - Multiple Choice Questions (MCQs) - 1 mark each
@@ -12,13 +13,40 @@ A Streamlit web application that generates customized questions from PDF documen
   - Medium Answer Questions - 5 marks each
   - Long Answer Questions - 10+ marks each
   - Case Study/Application Questions - Variable marks
+
+### 🎯 Interactive Exam System
+- **Take Exams** on generated questions
+- **Multiple Answer Formats:**
+  - Type answers directly in the app
+  - Upload handwritten answer sheets (photos/PDFs)
+- **AI-Powered Evaluation:**
+  - Automatic MCQ scoring
+  - Intelligent evaluation of subjective answers
+  - Detailed feedback and suggestions
+  - Marks allocation with explanations
+
+### 📊 Comprehensive Results
+- **Detailed Performance Analysis:**
+  - Total marks and percentage
+  - Question-wise breakdown
+  - Grade assignment (A+, A, B, C, F)
+  - Progress visualization
+- **Feedback System:**
+  - Individual question feedback
+  - Areas for improvement
+  - Sample answer comparisons
+- **Export Options:**
+  - Download exam results
+  - Performance reports
+
+### ⚙️ Customization Options
 - 🎯 **Quick Presets:**
   - Exam Paper (Mixed questions)
   - Practice Set (MCQ focused)
   - Assignment (Long answer focused)
   - Quiz (Short & MCQ)
   - Custom configuration
-- ⚙️ **Customizable Settings:**
+- **Advanced Settings:**
   - Difficulty level distribution
   - Question count for each type
   - Mark allocation display
@@ -28,8 +56,41 @@ A Streamlit web application that generates customized questions from PDF documen
   - English only
   - Hindi only
   - Bilingual (English + Hindi)
-- 💾 Download generated questions as text files
-- 📊 Real-time question count and mark estimation
+
+### 💾 Export & Download
+- Download generated questions as text files
+- Download exam results and performance reports
+- Save question sets for later use
+
+## 🚀 How to Use
+
+### 1. Generate Questions
+1. Upload a PDF document
+2. Choose a preset or customize question types
+3. Configure difficulty and language settings
+4. Click "Generate Questions"
+5. Review and download the questions
+
+### 2. Take Exam
+1. After generating questions, navigate to "Take Exam"
+2. Answer questions in the provided interface
+3. For subjective questions, type your answers
+4. Optionally upload handwritten answer sheets
+5. Submit the exam for evaluation
+
+### 3. View Results
+1. Get instant AI-powered evaluation
+2. Review detailed feedback for each question
+3. Check your overall performance and grade
+4. Download results or retake the exam
+
+## 🎯 Use Cases
+
+- **Students:** Practice with custom question sets
+- **Teachers:** Create exams and evaluate student performance
+- **Researchers:** Generate questions from academic papers
+- **Corporate Training:** Create assessments from training materials
+- **Self-Learning:** Test comprehension of study materials
 
 ## How to Deploy to Streamlit Cloud
 
