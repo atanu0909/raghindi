@@ -8,6 +8,12 @@ import os
 import json
 import time
 from datetime import datetime
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+from reportlab.lib import colors
 
 # ==========================
 # Streamlit App Configuration
@@ -30,6 +36,8 @@ if 'exam_submitted' not in st.session_state:
     st.session_state.exam_submitted = False
 if 'evaluation_result' not in st.session_state:
     st.session_state.evaluation_result = None
+if 'pattern_format' not in st.session_state:
+    st.session_state.pattern_format = None
 
 # Page navigation
 page = st.sidebar.selectbox("📋 Select Mode", ["📝 Generate Questions", "🎯 Take Exam", "📊 View Results"])
@@ -133,6 +141,7 @@ def generate_questions(images, mcq_count, short_count, medium_count, long_count,
         # Process pattern if uploaded
         pattern_context = ""
         pattern_content = None
+        pattern_format = None
         
         if uploaded_pattern:
             pattern_content = process_pattern_file(uploaded_pattern)
@@ -144,6 +153,9 @@ def generate_questions(images, mcq_count, short_count, medium_count, long_count,
                 
                 if pattern_instructions:
                     pattern_context += f"\n\nADDITIONAL PATTERN INSTRUCTIONS: {pattern_instructions}"
+                
+                # Extract format information for PDF generation
+                pattern_format = extract_pattern_format(pattern_content)
         
         # Build question specification (only if not using pattern)
         if not uploaded_pattern:
@@ -321,6 +333,12 @@ Make questions comprehensive and varied."""
                     st.text("Raw AI Response for Exam Data:")
                     st.text(exam_response.text[:1000] + "..." if len(exam_response.text) > 1000 else exam_response.text)
         
+        # Store pattern format in session state for PDF generation
+        if pattern_format:
+            st.session_state.pattern_format = pattern_format
+        else:
+            st.session_state.pattern_format = None
+        
         return display_response.text
     except Exception as e:
         st.error(f"Error generating questions: {str(e)}")
@@ -411,6 +429,241 @@ Provide a clear, structured analysis that can be used to generate similar questi
         
     except Exception as e:
         st.error(f"Error analyzing pattern: {str(e)}")
+        return None
+
+def extract_pattern_format(pattern_content):
+    """Extract formatting information from the pattern"""
+    try:
+        model = configure_gemini()
+        
+        if isinstance(pattern_content, Image.Image):
+            # Image-based format extraction
+            format_prompt = """Analyze this question paper image and extract the formatting details in JSON format:
+
+{
+    "header": {
+        "title": "Main title/heading",
+        "subtitle": "Subtitle if any",
+        "institution": "Institution name",
+        "subject": "Subject name",
+        "time": "Time duration",
+        "marks": "Total marks",
+        "instructions": ["List of general instructions"]
+    },
+    "layout": {
+        "font_style": "Description of font style",
+        "spacing": "Description of spacing",
+        "numbering_style": "Question numbering pattern",
+        "sections": "How questions are organized into sections",
+        "alignment": "Text alignment style"
+    },
+    "question_format": {
+        "mcq_style": "How MCQs are formatted",
+        "subjective_style": "How subjective questions are formatted",
+        "marks_display": "How marks are shown",
+        "options_style": "How MCQ options are displayed"
+    }
+}
+
+Extract only what's visible and provide a detailed JSON response."""
+            
+            response = model.generate_content([format_prompt, pattern_content])
+        else:
+            # Text-based format extraction
+            format_prompt = f"""Analyze this question paper text and extract the formatting details in JSON format:
+
+PATTERN CONTENT:
+{pattern_content}
+
+Extract and return in this JSON format:
+{{
+    "header": {{
+        "title": "Main title/heading",
+        "subtitle": "Subtitle if any", 
+        "institution": "Institution name",
+        "subject": "Subject name",
+        "time": "Time duration",
+        "marks": "Total marks",
+        "instructions": ["List of general instructions"]
+    }},
+    "layout": {{
+        "font_style": "Description of font style",
+        "spacing": "Description of spacing", 
+        "numbering_style": "Question numbering pattern",
+        "sections": "How questions are organized into sections",
+        "alignment": "Text alignment style"
+    }},
+    "question_format": {{
+        "mcq_style": "How MCQs are formatted",
+        "subjective_style": "How subjective questions are formatted", 
+        "marks_display": "How marks are shown",
+        "options_style": "How MCQ options are displayed"
+    }}
+}}
+
+Provide a detailed JSON response based on the visible content."""
+            
+            response = model.generate_content(format_prompt)
+        
+        # Try to parse JSON from response
+        response_text = response.text.strip()
+        if '{' in response_text and '}' in response_text:
+            json_start = response_text.find('{')
+            json_end = response_text.rfind('}') + 1
+            json_text = response_text[json_start:json_end]
+            format_data = json.loads(json_text)
+            return format_data
+        
+        return None
+        
+    except Exception as e:
+        st.error(f"Error extracting format: {str(e)}")
+        return None
+
+def generate_formatted_pdf(questions_text, pattern_format=None, filename="questions.pdf"):
+    """Generate a PDF with formatting that matches the pattern"""
+    try:
+        # Create temporary file
+        pdf_buffer = io.BytesIO()
+        
+        # Create document
+        doc = SimpleDocTemplate(pdf_buffer, pagesize=A4, 
+                               rightMargin=72, leftMargin=72, 
+                               topMargin=72, bottomMargin=18)
+        
+        # Build styles
+        styles = getSampleStyleSheet()
+        
+        # Custom styles based on pattern
+        if pattern_format:
+            # Header style
+            header_style = ParagraphStyle(
+                'CustomHeader',
+                parent=styles['Heading1'],
+                fontSize=16,
+                spaceAfter=30,
+                alignment=TA_CENTER,
+                fontName='Helvetica-Bold'
+            )
+            
+            # Title style
+            title_style = ParagraphStyle(
+                'CustomTitle', 
+                parent=styles['Heading2'],
+                fontSize=14,
+                spaceAfter=20,
+                alignment=TA_CENTER,
+                fontName='Helvetica-Bold'
+            )
+            
+            # Question style
+            question_style = ParagraphStyle(
+                'CustomQuestion',
+                parent=styles['Normal'],
+                fontSize=12,
+                spaceAfter=12,
+                leftIndent=0,
+                fontName='Helvetica'
+            )
+            
+            # Option style for MCQs
+            option_style = ParagraphStyle(
+                'CustomOption',
+                parent=styles['Normal'], 
+                fontSize=11,
+                spaceAfter=6,
+                leftIndent=20,
+                fontName='Helvetica'
+            )
+        else:
+            # Default styles
+            header_style = styles['Heading1']
+            title_style = styles['Heading2']
+            question_style = styles['Normal']
+            option_style = styles['Normal']
+        
+        # Story (content) list
+        story = []
+        
+        # Add header if pattern format is available
+        if pattern_format and pattern_format.get('header'):
+            header = pattern_format['header']
+            
+            # Institution name
+            if header.get('institution'):
+                story.append(Paragraph(header['institution'], header_style))
+                story.append(Spacer(1, 12))
+            
+            # Subject and exam details
+            if header.get('subject'):
+                story.append(Paragraph(header['subject'], title_style))
+            
+            # Time and marks in a table
+            if header.get('time') or header.get('marks'):
+                exam_details = []
+                if header.get('time'):
+                    exam_details.append(['Time:', header['time']])
+                if header.get('marks'):
+                    exam_details.append(['Marks:', header['marks']])
+                
+                if exam_details:
+                    details_table = Table(exam_details, colWidths=[1*inch, 2*inch])
+                    details_table.setStyle(TableStyle([
+                        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                        ('FONTSIZE', (0, 0), (-1, -1), 11),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                    ]))
+                    story.append(details_table)
+                    story.append(Spacer(1, 12))
+            
+            # Instructions
+            if header.get('instructions'):
+                story.append(Paragraph('<b>Instructions:</b>', question_style))
+                for instruction in header['instructions']:
+                    story.append(Paragraph(f"• {instruction}", option_style))
+                story.append(Spacer(1, 20))
+        
+        # Add questions content
+        # Parse and format the questions text
+        lines = questions_text.split('\n')
+        current_section = ""
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Check if it's a section header (contains words like "Section", "Part", etc.)
+            if any(word in line.upper() for word in ['SECTION', 'PART', 'MCQ', 'SHORT ANSWER', 'LONG ANSWER']):
+                story.append(Spacer(1, 15))
+                story.append(Paragraph(f'<b>{line}</b>', title_style))
+                story.append(Spacer(1, 10))
+                current_section = line
+                
+            # Check if it's a question (starts with number)
+            elif line and (line[0].isdigit() or line.startswith('Q')):
+                story.append(Paragraph(line, question_style))
+                
+            # Check if it's an option (starts with A), B), C), D))
+            elif line and any(line.startswith(opt) for opt in ['A)', 'B)', 'C)', 'D)', 'a)', 'b)', 'c)', 'd)']):
+                story.append(Paragraph(line, option_style))
+                
+            # Regular content
+            else:
+                story.append(Paragraph(line, question_style))
+        
+        # Build PDF
+        doc.build(story)
+        
+        # Get PDF bytes
+        pdf_bytes = pdf_buffer.getvalue()
+        pdf_buffer.close()
+        
+        return pdf_bytes
+        
+    except Exception as e:
+        st.error(f"Error generating PDF: {str(e)}")
         return None
 
 def evaluate_exam_answers(questions_data, user_answers, answer_images=None):
@@ -654,15 +907,32 @@ if page == "📝 Generate Questions":
                 
                 # Show pattern analysis
                 with st.expander("🔍 Pattern Analysis", expanded=False):
-                    if st.button("🤖 Analyze Pattern", help="Let AI analyze the uploaded pattern"):
-                        with st.spinner("🔍 Analyzing pattern..."):
-                            # Process the uploaded pattern
-                            pattern_content = process_pattern_file(uploaded_pattern)
-                            if pattern_content:
-                                analysis = analyze_question_pattern(pattern_content)
-                                if analysis:
-                                    st.markdown("**AI Pattern Analysis:**")
-                                    st.markdown(analysis)
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        if st.button("🤖 Analyze Pattern", help="Let AI analyze the uploaded pattern"):
+                            with st.spinner("🔍 Analyzing pattern..."):
+                                # Process the uploaded pattern
+                                pattern_content = process_pattern_file(uploaded_pattern)
+                                if pattern_content:
+                                    analysis = analyze_question_pattern(pattern_content)
+                                    if analysis:
+                                        st.markdown("**AI Pattern Analysis:**")
+                                        st.markdown(analysis)
+                    
+                    with col2:
+                        if st.button("🎨 Extract Format Info", help="Extract formatting details for PDF generation"):
+                            with st.spinner("🎨 Extracting format information..."):
+                                pattern_content = process_pattern_file(uploaded_pattern)
+                                if pattern_content:
+                                    format_info = extract_pattern_format(pattern_content)
+                                    if format_info:
+                                        st.success("✅ Format information extracted!")
+                                        st.json(format_info)
+                                        # Store in session state
+                                        st.session_state.pattern_format = format_info
+                                    else:
+                                        st.warning("⚠️ Could not extract format information")
         
         # Show manual configuration only if not using pattern upload or if pattern analysis suggests numbers
         show_manual_config = (pattern_option == "Manual Configuration" or 
@@ -844,11 +1114,11 @@ if page == "📝 Generate Questions":
                                 st.markdown(questions)
                             
                             # Action buttons
-                            col1, col2, col3 = st.columns(3)
+                            col1, col2, col3, col4 = st.columns(4)
                             
                             with col1:
                                 st.download_button(
-                                    label="💾 Download Questions",
+                                    label="� Download Text",
                                     data=questions,
                                     file_name=f"questions_{uploaded_file.name.replace('.pdf', '.txt')}",
                                     mime="text/plain",
@@ -856,12 +1126,54 @@ if page == "📝 Generate Questions":
                                 )
                             
                             with col2:
+                                # Generate formatted PDF
+                                if uploaded_pattern and st.session_state.pattern_format:
+                                    pdf_bytes = generate_formatted_pdf(
+                                        questions, 
+                                        st.session_state.pattern_format,
+                                        f"formatted_questions_{uploaded_file.name.replace('.pdf', '.pdf')}"
+                                    )
+                                    if pdf_bytes:
+                                        st.download_button(
+                                            label="📋 Download Formatted PDF",
+                                            data=pdf_bytes,
+                                            file_name=f"formatted_questions_{uploaded_file.name.replace('.pdf', '.pdf')}",
+                                            mime="application/pdf",
+                                            use_container_width=True,
+                                            help="Download questions in the same format as uploaded pattern"
+                                        )
+                                    else:
+                                        st.button(
+                                            "📋 PDF Generation Failed",
+                                            disabled=True,
+                                            use_container_width=True
+                                        )
+                                else:
+                                    # Basic PDF without pattern formatting
+                                    pdf_bytes = generate_formatted_pdf(questions, None)
+                                    if pdf_bytes:
+                                        st.download_button(
+                                            label="📋 Download Basic PDF",
+                                            data=pdf_bytes,
+                                            file_name=f"questions_{uploaded_file.name.replace('.pdf', '.pdf')}",
+                                            mime="application/pdf",
+                                            use_container_width=True,
+                                            help="Download questions as basic formatted PDF"
+                                        )
+                                    else:
+                                        st.button(
+                                            "📋 PDF Generation Failed",
+                                            disabled=True,
+                                            use_container_width=True
+                                        )
+                            
+                            with col3:
                                 if st.session_state.questions_data:
                                     if st.button("🎯 Take Exam", use_container_width=True):
                                         st.session_state.exam_mode = True
                                         st.rerun()
                             
-                            with col3:
+                            with col4:
                                 if st.session_state.questions_data:
                                     st.success("✅ Exam Ready!")
                                 else:

@@ -19,6 +19,7 @@ A comprehensive Streamlit web application that generates customized questions fr
   - Supports PDF, images (JPG, PNG), and text files
   - Maintains original numbering and organization
   - Custom instructions for pattern following
+  - **Formatted PDF Download:** Questions in same format as uploaded pattern
 
 ### 🎯 Interactive Exam System
 - **Take Exams** on generated questions
@@ -77,7 +78,9 @@ A comprehensive Streamlit web application that generates customized questions fr
    - **Pattern Upload:** Upload a sample question paper/pattern for AI to follow
 3. Configure difficulty and language settings
 4. Click "Generate Questions"
-5. Review and download the questions
+5. **Download Options:**
+   - **Basic PDF:** Standard formatted questions
+   - **Formatted PDF:** Questions in exact same format as uploaded pattern (when pattern provided)
 
 **Pattern Upload Features:**
 - Upload sample papers (PDF, images, text)
