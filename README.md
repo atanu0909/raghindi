@@ -13,6 +13,12 @@ A comprehensive Streamlit web application that generates customized questions fr
   - Medium Answer Questions - 5 marks each
   - Long Answer Questions - 10+ marks each
   - Case Study/Application Questions - Variable marks
+- 📋 **Pattern-Based Generation:**
+  - Upload sample question papers or exam patterns
+  - AI follows the exact format, structure, and style
+  - Supports PDF, images (JPG, PNG), and text files
+  - Maintains original numbering and organization
+  - Custom instructions for pattern following
 
 ### 🎯 Interactive Exam System
 - **Take Exams** on generated questions
@@ -66,10 +72,18 @@ A comprehensive Streamlit web application that generates customized questions fr
 
 ### 1. Generate Questions
 1. Upload a PDF document
-2. Choose a preset or customize question types
+2. **Choose generation method:**
+   - **Manual Configuration:** Set question types and counts manually
+   - **Pattern Upload:** Upload a sample question paper/pattern for AI to follow
 3. Configure difficulty and language settings
 4. Click "Generate Questions"
 5. Review and download the questions
+
+**Pattern Upload Features:**
+- Upload sample papers (PDF, images, text)
+- AI analyzes and follows the exact format
+- Add custom instructions for pattern following
+- Perfect for recreating specific exam formats
 
 ### 2. Take Exam
 1. After generating questions, navigate to "Take Exam"
@@ -86,11 +100,13 @@ A comprehensive Streamlit web application that generates customized questions fr
 
 ## 🎯 Use Cases
 
-- **Students:** Practice with custom question sets
-- **Teachers:** Create exams and evaluate student performance
-- **Researchers:** Generate questions from academic papers
-- **Corporate Training:** Create assessments from training materials
-- **Self-Learning:** Test comprehension of study materials
+- **Students:** Practice with custom question sets from study materials
+- **Teachers:** Create exams following specific institutional formats
+- **Educational Institutions:** Generate questions matching their exam patterns
+- **Researchers:** Create assessment tools from academic papers
+- **Corporate Training:** Build assessments following company formats
+- **Self-Learning:** Test comprehension with personalized question formats
+- **Exam Preparation:** Practice with questions following real exam patterns
 
 ## How to Deploy to Streamlit Cloud
 

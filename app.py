@@ -125,28 +125,73 @@ def pdf_to_images(pdf_file):
         st.error(f"Error processing PDF: {str(e)}")
         return []
 
-def generate_questions(images, mcq_count, short_count, medium_count, long_count, case_study_count, difficulty_level, language_instruction, include_answers, include_marks):
+def generate_questions(images, mcq_count, short_count, medium_count, long_count, case_study_count, difficulty_level, language_instruction, include_answers, include_marks, uploaded_pattern=None, pattern_instructions=""):
     """Generate questions from PDF images using Gemini"""
     try:
         model = configure_gemini()
         
-        # Build question specification
-        question_specs = []
-        total_questions = mcq_count + short_count + medium_count + long_count + case_study_count
+        # Process pattern if uploaded
+        pattern_context = ""
+        pattern_content = None
         
-        if mcq_count > 0:
-            question_specs.append(f"- {mcq_count} Multiple Choice Questions (4 options each, 1 mark each)")
-        if short_count > 0:
-            question_specs.append(f"- {short_count} Short Answer Questions (2-3 marks each)")
-        if medium_count > 0:
-            question_specs.append(f"- {medium_count} Medium Answer Questions (5 marks each)")
-        if long_count > 0:
-            question_specs.append(f"- {long_count} Long Answer Questions (10+ marks each)")
-        if case_study_count > 0:
-            question_specs.append(f"- {case_study_count} Case Study/Application Questions (variable marks)")
+        if uploaded_pattern:
+            pattern_content = process_pattern_file(uploaded_pattern)
+            if pattern_content:
+                if isinstance(pattern_content, Image.Image):
+                    pattern_context = "\n\nPATTERN REFERENCE: Follow the format, style, and structure shown in the uploaded pattern image."
+                else:
+                    pattern_context = f"\n\nPATTERN REFERENCE: Follow the format, style, and structure of this sample:\n{pattern_content}"
+                
+                if pattern_instructions:
+                    pattern_context += f"\n\nADDITIONAL PATTERN INSTRUCTIONS: {pattern_instructions}"
+        
+        # Build question specification (only if not using pattern)
+        if not uploaded_pattern:
+            question_specs = []
+            total_questions = mcq_count + short_count + medium_count + long_count + case_study_count
+            
+            if mcq_count > 0:
+                question_specs.append(f"- {mcq_count} Multiple Choice Questions (4 options each, 1 mark each)")
+            if short_count > 0:
+                question_specs.append(f"- {short_count} Short Answer Questions (2-3 marks each)")
+            if medium_count > 0:
+                question_specs.append(f"- {medium_count} Medium Answer Questions (5 marks each)")
+            if long_count > 0:
+                question_specs.append(f"- {long_count} Long Answer Questions (10+ marks each)")
+            if case_study_count > 0:
+                question_specs.append(f"- {case_study_count} Case Study/Application Questions (variable marks)")
+        else:
+            # When using pattern, let AI determine the structure
+            question_specs = ["Follow the uploaded pattern structure and format"]
+            total_questions = "as shown in pattern"
         
         # Create comprehensive prompt for display questions
-        display_prompt = f"""Generate exactly {total_questions} innovative questions from the PDF content with the following specifications:
+        if uploaded_pattern:
+            display_prompt = f"""Generate questions from the PDF content following the EXACT pattern, format, and structure provided.
+
+SOURCE CONTENT: Use the uploaded PDF as the source material for questions.
+
+{pattern_context}
+
+DIFFICULTY LEVEL: {difficulty_level}
+LANGUAGE: {language_instruction}
+
+REQUIREMENTS:
+- Follow the EXACT format, numbering, and structure from the pattern
+- Maintain the same question types and mark distribution as shown
+- {"Include mark allocation as shown in pattern" if include_marks else "Focus on content quality"}
+- {"Provide sample answers where indicated in pattern" if include_answers else "Generate questions only"}
+
+CONTENT GUIDELINES:
+- Ensure questions are based on the PDF content
+- Match the difficulty and complexity shown in the pattern
+- Follow any specific formatting or organizational structure
+- Maintain consistency with the pattern's style and approach
+
+Generate the questions exactly as they would appear in a real exam following this pattern."""
+
+        else:
+            display_prompt = f"""Generate exactly {total_questions} innovative questions from the PDF content with the following specifications:
 
 QUESTION DISTRIBUTION:
 {chr(10).join(question_specs)}
@@ -172,7 +217,35 @@ CONTENT GUIDELINES:
 Please structure the output clearly with proper headings and numbering."""
 
         # Create structured prompt for exam data
-        exam_prompt = f"""Generate exactly {total_questions} questions from the PDF content in JSON format for an exam system.
+        if uploaded_pattern:
+            exam_prompt = f"""Generate questions from the PDF content in JSON format following the uploaded pattern structure.
+
+{pattern_context}
+
+DIFFICULTY LEVEL: {difficulty_level}
+LANGUAGE: {language_instruction}
+
+Return ONLY a valid JSON object following the pattern structure with this format:
+{{
+    "questions": [
+        {{
+            "id": 1,
+            "type": "mcq",
+            "question": "Question text here",
+            "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
+            "correct_answer": "A",
+            "marks": 1,
+            "sample_answer": "Brief explanation"
+        }}
+    ]
+}}
+
+Types: "mcq", "short", "medium", "long", "case_study"
+Match the pattern's question distribution and mark allocation.
+For non-MCQ questions, omit "options" and "correct_answer" fields."""
+
+        else:
+            exam_prompt = f"""Generate exactly {total_questions} questions from the PDF content in JSON format for an exam system.
 
 QUESTION DISTRIBUTION:
 {chr(10).join(question_specs)}
@@ -207,11 +280,20 @@ For non-MCQ questions, omit "options" and "correct_answer" fields.
 Make questions comprehensive and varied."""
         
         with st.spinner("🤖 Generating questions with AI..."):
+            # Prepare inputs for model
+            model_inputs = [display_prompt] + images
+            exam_inputs = [exam_prompt] + images
+            
+            # Add pattern image if available
+            if uploaded_pattern and isinstance(pattern_content, Image.Image):
+                model_inputs.insert(-len(images), pattern_content)
+                exam_inputs.insert(-len(images), pattern_content)
+            
             # Generate display version
-            display_response = model.generate_content([display_prompt] + images)
+            display_response = model.generate_content(model_inputs)
             
             # Generate structured version for exam
-            exam_response = model.generate_content([exam_prompt] + images)
+            exam_response = model.generate_content(exam_inputs)
             
             # Try to parse JSON data
             try:
@@ -242,6 +324,93 @@ Make questions comprehensive and varied."""
         return display_response.text
     except Exception as e:
         st.error(f"Error generating questions: {str(e)}")
+        return None
+
+def process_pattern_file(uploaded_file):
+    """Process uploaded pattern file and extract content"""
+    try:
+        file_type = uploaded_file.type
+        content = ""
+        
+        if file_type == "application/pdf":
+            # Process PDF file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                tmp_file.write(uploaded_file.read())
+                tmp_path = tmp_file.name
+            
+            doc = fitz.open(tmp_path)
+            for page in doc:
+                content += page.get_text()
+            doc.close()
+            os.unlink(tmp_path)
+            
+        elif file_type in ["image/jpeg", "image/jpg", "image/png"]:
+            # Process image file using OCR-like approach with Gemini Vision
+            image = Image.open(uploaded_file)
+            return image  # Return image for Gemini Vision processing
+            
+        elif file_type == "text/plain":
+            # Process text file
+            content = uploaded_file.read().decode('utf-8')
+            
+        elif file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            # For DOCX files, return the file for processing
+            st.warning("DOCX files will be processed as images. For best results, use PDF or text format.")
+            return uploaded_file
+            
+        return content if content.strip() else None
+        
+    except Exception as e:
+        st.error(f"Error processing pattern file: {str(e)}")
+        return None
+
+def analyze_question_pattern(pattern_content):
+    """Analyze the pattern content using AI"""
+    try:
+        model = configure_gemini()
+        
+        if isinstance(pattern_content, Image.Image):
+            # Image-based pattern analysis
+            analysis_prompt = """Analyze this question paper/pattern image and provide a detailed analysis of:
+
+1. Question Types (MCQ, Short Answer, Long Answer, etc.)
+2. Number of questions in each category
+3. Mark distribution and allocation
+4. Question format and style
+5. Numbering and organization pattern
+6. Any specific instructions or requirements
+7. Difficulty progression if visible
+8. Time allocation if mentioned
+
+Provide a clear, structured analysis that can be used to generate similar questions."""
+
+            response = model.generate_content([analysis_prompt, pattern_content])
+            
+        else:
+            # Text-based pattern analysis
+            analysis_prompt = f"""Analyze this question paper/pattern and provide a detailed analysis of:
+
+CONTENT TO ANALYZE:
+{pattern_content}
+
+Please analyze:
+1. Question Types (MCQ, Short Answer, Long Answer, etc.)
+2. Number of questions in each category
+3. Mark distribution and allocation
+4. Question format and style
+5. Numbering and organization pattern
+6. Any specific instructions or requirements
+7. Difficulty progression
+8. Time allocation if mentioned
+
+Provide a clear, structured analysis that can be used to generate similar questions."""
+
+            response = model.generate_content(analysis_prompt)
+        
+        return response.text
+        
+    except Exception as e:
+        st.error(f"Error analyzing pattern: {str(e)}")
         return None
 
 def evaluate_exam_answers(questions_data, user_answers, answer_images=None):
@@ -455,13 +624,61 @@ if page == "📝 Generate Questions":
         # Question Type Configuration
         st.subheader("📝 Question Types & Distribution")
         
+        # Pattern Upload Feature
+        st.markdown("##### 📋 Question Pattern/Sample Paper")
+        pattern_option = st.radio(
+            "Choose pattern source:",
+            ["Manual Configuration", "Upload Question Pattern/Sample Paper"],
+            help="Either configure manually or upload a sample paper for AI to follow"
+        )
+        
+        uploaded_pattern = None
+        pattern_instructions = ""
+        
+        if pattern_option == "Upload Question Pattern/Sample Paper":
+            uploaded_pattern = st.file_uploader(
+                "Upload Question Pattern/Sample Paper",
+                type=['pdf', 'jpg', 'jpeg', 'png', 'txt', 'docx'],
+                help="Upload a sample question paper, exam pattern, or question format that AI should follow"
+            )
+            
+            if uploaded_pattern:
+                st.success(f"✅ Pattern uploaded: {uploaded_pattern.name}")
+                
+                # Additional instructions for pattern following
+                pattern_instructions = st.text_area(
+                    "Additional Instructions (Optional)",
+                    placeholder="e.g., 'Follow the exact format and numbering style', 'Include similar difficulty progression', 'Maintain the same section structure'...",
+                    help="Provide specific instructions on how to follow the uploaded pattern"
+                )
+                
+                # Show pattern analysis
+                with st.expander("🔍 Pattern Analysis", expanded=False):
+                    if st.button("🤖 Analyze Pattern", help="Let AI analyze the uploaded pattern"):
+                        with st.spinner("🔍 Analyzing pattern..."):
+                            # Process the uploaded pattern
+                            pattern_content = process_pattern_file(uploaded_pattern)
+                            if pattern_content:
+                                analysis = analyze_question_pattern(pattern_content)
+                                if analysis:
+                                    st.markdown("**AI Pattern Analysis:**")
+                                    st.markdown(analysis)
+        
+        # Show manual configuration only if not using pattern upload or if pattern analysis suggests numbers
+        show_manual_config = (pattern_option == "Manual Configuration" or 
+                             (pattern_option == "Upload Question Pattern/Sample Paper" and not uploaded_pattern))
+        
+        if show_manual_config:
+            st.markdown("##### ⚙️ Manual Configuration")
+        
         # MCQ Questions
         mcq_count = st.number_input(
             "Multiple Choice Questions (MCQs)",
             min_value=0,
             max_value=20,
             value=default_mcq,
-            help="Number of multiple choice questions"
+            help="Number of multiple choice questions",
+            disabled=(pattern_option == "Upload Question Pattern/Sample Paper" and uploaded_pattern is not None)
         )
         
         # Short Answer Questions
@@ -470,7 +687,8 @@ if page == "📝 Generate Questions":
             min_value=0,
             max_value=15,
             value=default_short,
-            help="Brief questions worth 2-3 marks each"
+            help="Brief questions worth 2-3 marks each",
+            disabled=(pattern_option == "Upload Question Pattern/Sample Paper" and uploaded_pattern is not None)
         )
         
         # Medium Answer Questions
@@ -479,7 +697,8 @@ if page == "📝 Generate Questions":
             min_value=0,
             max_value=10,
             value=default_medium,
-            help="Detailed questions worth 5 marks each"
+            help="Detailed questions worth 5 marks each",
+            disabled=(pattern_option == "Upload Question Pattern/Sample Paper" and uploaded_pattern is not None)
         )
         
         # Long Answer Questions
@@ -488,7 +707,8 @@ if page == "📝 Generate Questions":
             min_value=0,
             max_value=8,
             value=default_long,
-            help="Essay-type questions worth 10+ marks each"
+            help="Essay-type questions worth 10+ marks each",
+            disabled=(pattern_option == "Upload Question Pattern/Sample Paper" and uploaded_pattern is not None)
         )
         
         # Case Study/Application Questions
@@ -497,17 +717,27 @@ if page == "📝 Generate Questions":
             min_value=0,
             max_value=5,
             value=default_case,
-            help="Real-world application and case study questions"
+            help="Real-world application and case study questions",
+            disabled=(pattern_option == "Upload Question Pattern/Sample Paper" and uploaded_pattern is not None)
         )
         
-        # Calculate total questions
-        total_questions = mcq_count + short_count + medium_count + long_count + case_study_count
+        # Calculate total questions and marks
+        if uploaded_pattern:
+            st.info("📋 Using uploaded pattern - question count determined by pattern")
+            st.info("📈 Marks will be calculated based on pattern structure")
+            total_questions = 1  # Set to 1 to enable the generate button
+        else:
+            total_questions = mcq_count + short_count + medium_count + long_count + case_study_count
+            estimated_marks = (mcq_count * 1) + (short_count * 2.5) + (medium_count * 5) + (long_count * 12) + (case_study_count * 8)
+            
+            st.info(f"📊 Total Questions: {total_questions}")
+            st.info(f"📈 Estimated Total Marks: {estimated_marks:.0f}")
         
-        # Calculate estimated marks
-        estimated_marks = (mcq_count * 1) + (short_count * 2.5) + (medium_count * 5) + (long_count * 12) + (case_study_count * 8)
-        
-        st.info(f"📊 Total Questions: {total_questions}")
-        st.info(f"📈 Estimated Total Marks: {estimated_marks:.0f}")
+        # Pattern information display
+        if uploaded_pattern:
+            st.success(f"🎯 Following pattern from: {uploaded_pattern.name}")
+            if pattern_instructions:
+                st.info(f"📝 Additional instructions: {pattern_instructions}")
         
         # Difficulty Distribution
         st.subheader("🎯 Difficulty Distribution")
@@ -554,26 +784,30 @@ if page == "📝 Generate Questions":
         st.success(f"✅ Uploaded: {uploaded_file.name}")
         
         # Show question configuration summary
-        if total_questions > 0:
+        can_generate = (total_questions > 0) or uploaded_pattern
+        if can_generate:
             col1, col2 = st.columns([2, 1])
             
             with col1:
                 st.info(f"📄 File size: {len(uploaded_file.getvalue()) / 1024:.1f} KB")
                 
                 # Display question breakdown
-                question_breakdown = []
-                if mcq_count > 0:
-                    question_breakdown.append(f"📝 {mcq_count} MCQs")
-                if short_count > 0:
-                    question_breakdown.append(f"✏️ {short_count} Short (2-3 marks)")
-                if medium_count > 0:
-                    question_breakdown.append(f"📋 {medium_count} Medium (5 marks)")
-                if long_count > 0:
-                    question_breakdown.append(f"📃 {long_count} Long (10+ marks)")
-                if case_study_count > 0:
-                    question_breakdown.append(f"🎯 {case_study_count} Case Studies")
-                
-                st.info(f"🎯 Question Plan: {' | '.join(question_breakdown)}")
+                if uploaded_pattern:
+                    st.info(f"🎯 Question Plan: Following uploaded pattern structure")
+                else:
+                    question_breakdown = []
+                    if mcq_count > 0:
+                        question_breakdown.append(f"📝 {mcq_count} MCQs")
+                    if short_count > 0:
+                        question_breakdown.append(f"✏️ {short_count} Short (2-3 marks)")
+                    if medium_count > 0:
+                        question_breakdown.append(f"📋 {medium_count} Medium (5 marks)")
+                    if long_count > 0:
+                        question_breakdown.append(f"📃 {long_count} Long (10+ marks)")
+                    if case_study_count > 0:
+                        question_breakdown.append(f"🎯 {case_study_count} Case Studies")
+                    
+                    st.info(f"🎯 Question Plan: {' | '.join(question_breakdown)}")
             
             with col2:
                 if st.button("🚀 Generate Questions", type="primary", use_container_width=True):
@@ -595,7 +829,9 @@ if page == "📝 Generate Questions":
                             difficulty_level, 
                             language_instruction,
                             include_answers,
-                            include_marks
+                            include_marks,
+                            uploaded_pattern,
+                            pattern_instructions
                         )
                         
                         if questions:
@@ -634,7 +870,10 @@ if page == "📝 Generate Questions":
                     else:
                         st.error("❌ Failed to process PDF. Please try again with a different file.")
         else:
-            st.warning("⚠️ Please configure at least one type of question in the sidebar.")
+            if uploaded_pattern:
+                st.info("✅ Pattern uploaded and ready. You can generate questions now.")
+            else:
+                st.warning("⚠️ Please configure at least one type of question in the sidebar.")
 
 # ==========================
 # PAGE 2: TAKE EXAM
