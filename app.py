@@ -9,7 +9,12 @@ import json
 import time
 from datetime import datetime
 import numpy as np
-import cv2
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    st.warning("⚠️ OpenCV not available. Logo extraction features will be limited.")
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -708,6 +713,23 @@ def extract_images_from_pil(pil_image):
     try:
         extracted_images = []
         
+        if not CV2_AVAILABLE:
+            # Fallback: assume header region might contain logo
+            width, height = pil_image.size
+            if height > 200:  # Only if image is tall enough
+                # Extract top 20% as potential logo region
+                header_region = pil_image.crop((0, 0, width, int(height * 0.2)))
+                extracted_images.append({
+                    'image': header_region,
+                    'page': 0,
+                    'position': {'x': 0, 'y': 0, 'width': 1.0, 'height': 0.2},
+                    'absolute_position': {'x0': 0, 'y0': 0, 'x1': width, 'y1': int(height * 0.2)},
+                    'page_dimensions': {'width': width, 'height': height},
+                    'type': 'potential_logo',
+                    'confidence': 0.5
+                })
+            return extracted_images
+        
         # Convert PIL to OpenCV format
         cv_image = np.array(pil_image)
         if len(cv_image.shape) == 3:
@@ -761,6 +783,10 @@ def extract_images_from_pil(pil_image):
 def detect_image_regions(cv_image):
     """Detect logo and image regions using computer vision"""
     try:
+        if not CV2_AVAILABLE:
+            st.warning("OpenCV not available - using basic image detection")
+            return []
+            
         regions = []
         
         # Convert to grayscale
