@@ -121,8 +121,24 @@ def pdf_to_images(pdf_file):
     try:
         # Save uploaded file to temporary location
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            tmp_file.write(pdf_file.read())
+            # Reset file pointer to beginning if it has been read before
+            if hasattr(pdf_file, 'seek'):
+                pdf_file.seek(0)
+            
+            # Write file content
+            file_content = pdf_file.read()
+            if not file_content:
+                st.error("❌ PDF file appears to be empty")
+                return []
+                
+            tmp_file.write(file_content)
+            tmp_file.flush()  # Ensure content is written
             tmp_path = tmp_file.name
+        
+        # Verify file exists and has content
+        if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+            st.error("❌ Failed to create temporary PDF file")
+            return []
         
         # Convert PDF to images
         doc = fitz.open(tmp_path)
@@ -666,13 +682,19 @@ def extract_logos_and_images(pattern_content, uploaded_file=None):
             # Extract images from PIL Image
             extracted_images = extract_images_from_pil(pattern_content)
         elif uploaded_file and uploaded_file.type == "application/pdf":
-            # Extract images from PDF with coordinates
-            extracted_images = extract_images_from_pdf(uploaded_file)
+            # Only extract images if logo extraction is enabled and user wants it
+            try:
+                extracted_images = extract_images_from_pdf(uploaded_file)
+            except Exception as extract_error:
+                st.warning(f"⚠️ Logo extraction failed: {str(extract_error)}")
+                st.info("📝 Continuing with text-based pattern matching...")
+                extracted_images = []
         
         return extracted_images
         
     except Exception as e:
-        st.error(f"Error extracting logos/images: {str(e)}")
+        st.warning(f"⚠️ Image extraction encountered an issue: {str(e)}")
+        st.info("📝 Proceeding with text-based question generation...")
         return []
 
 def extract_images_from_pdf(pdf_file):
@@ -682,8 +704,24 @@ def extract_images_from_pdf(pdf_file):
         
         # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            tmp_file.write(pdf_file.read())
+            # Reset file pointer to beginning if it has been read before
+            if hasattr(pdf_file, 'seek'):
+                pdf_file.seek(0)
+            
+            # Write file content
+            file_content = pdf_file.read()
+            if not file_content:
+                st.warning("⚠️ PDF file appears to be empty")
+                return []
+                
+            tmp_file.write(file_content)
+            tmp_file.flush()  # Ensure content is written
             tmp_path = tmp_file.name
+        
+        # Verify file exists and has content
+        if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+            st.error("❌ Failed to create temporary PDF file")
+            return []
         
         # Open PDF with PyMuPDF
         doc = fitz.open(tmp_path)
@@ -2507,35 +2545,40 @@ if page == "📝 Generate Questions":
                     if pdf_images:
                         st.success(f"✅ Converted {len(pdf_images)} pages to images")
                         
-                # Prepare enhanced parameters
-                complexity_instruction = ", ".join(complexity_options) if complexity_options else "Standard question formats"
-                bloom_instruction = ", ".join(bloom_levels) if bloom_levels else "Mixed cognitive levels"
-                
-                # Generate questions with enhanced customization
-                questions = generate_questions(
-                    pdf_images, 
-                    mcq_count,
-                    short_count,
-                    medium_count,
-                    long_count,
-                    case_study_count,
-                    difficulty_level, 
-                    language_instruction,
-                    include_answers,
-                    include_marks,
-                    uploaded_pattern,
-                    pattern_instructions,
-                    custom_instructions,
-                    question_style,
-                    complexity_instruction,
-                    bloom_instruction,
-                    exam_type,
+                        # Prepare enhanced parameters
+                        complexity_instruction = ", ".join(complexity_options) if complexity_options else "Standard question formats"
+                        bloom_instruction = ", ".join(bloom_levels) if bloom_levels else "Mixed cognitive levels"
+                        
+                        # Generate questions with enhanced customization
+                        with st.spinner("🤖 Generating Questions with AI..."):
+                            questions = generate_questions(
+                                pdf_images, 
+                                mcq_count,
+                                short_count,
+                                medium_count,
+                                long_count,
+                                case_study_count,
+                                difficulty_level, 
+                                language_instruction,
+                                include_answers,
+                                include_marks,
+                                uploaded_pattern,
+                                pattern_instructions,
+                                custom_instructions,
+                                question_style,
+                                complexity_instruction,
+                                bloom_instruction,
+                                exam_type,
                     time_limit,
                     subject_focus,
                     difficulty_details
                 )
                 
-                if questions:
+                        if questions:
+                            # Store questions in session state for exam mode
+                            st.session_state.generated_questions = questions
+                            st.session_state.pdf_images = pdf_images
+                            
                             # Display results
                             st.markdown("---")
                             st.header("📝 Generated Questions")
@@ -2549,7 +2592,7 @@ if page == "📝 Generate Questions":
                             
                             with col1:
                                 st.download_button(
-                                    label="� Download Text",
+                                    label="📄 Download Text",
                                     data=questions,
                                     file_name=f"questions_{uploaded_file.name.replace('.pdf', '.txt')}",
                                     mime="text/plain",
@@ -2624,22 +2667,25 @@ if page == "📝 Generate Questions":
                                         )
                             
                             with col3:
-                                if st.session_state.questions_data:
+                                if questions:  # Use generated questions instead of session state
                                     if st.button("🎯 Take Exam", use_container_width=True):
                                         st.session_state.exam_mode = True
                                         st.rerun()
                             
                             with col4:
-                                if st.session_state.questions_data:
+                                if questions:
                                     st.success("✅ Exam Ready!")
                                 else:
                                     st.warning("⚠️ Exam data unavailable")
-                                    
-                else:
-                    st.error("❌ Failed to process PDF. Please try again with a different file.")
+                        else:
+                            st.error("❌ Failed to generate questions. Please try again.")
+                    else:
+                        st.error("❌ Failed to process PDF. Please check the file and try again.")
         else:
-            if uploaded_pattern:
-                st.info("✅ Pattern uploaded and ready. You can generate questions now.")
+            # Check if we can generate questions
+            can_generate = (total_questions > 0) or uploaded_pattern
+            if can_generate:
+                st.info("✅ Configuration ready. Upload a PDF to generate questions.")
             else:
                 st.warning("⚠️ Please configure at least one type of question in the sidebar.")
 
