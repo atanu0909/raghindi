@@ -2917,89 +2917,9 @@ elif page == "🎯 Take Exam":
                         st.session_state.evaluation_result = evaluation_result
                     st.success("✅ Exam submitted successfully!")
                     st.rerun()
-                                index=None
-                            )
-                            # Store the answer in form_answers for submission
-                            if user_answer:
-                                # Extract just the letter (A, B, C, D) from the option
-                                answer_letter = user_answer.split(')')[0].strip()
-                                form_answers[str(q_id)] = answer_letter
-                        else:
-                            st.error(f"No options available for Question {q_id}")
-                    else:
-                        # Text answer question
-                        if q_type == "short":
-                            answer = st.text_area(
-                                f"Your answer for Q{q_id}:",
-                                key=f"q_{q_id}",
-                                height=100,
-                                placeholder="Write your short answer here..."
-                            )
-                        elif q_type == "medium":
-                            answer = st.text_area(
-                                f"Your answer for Q{q_id}:",
-                                key=f"q_{q_id}",
-                                height=150,
-                                placeholder="Write your detailed answer here..."
-                            )
-                        else:  # long or case_study
-                            answer = st.text_area(
-                                f"Your answer for Q{q_id}:",
-                                key=f"q_{q_id}",
-                                height=200,
-                                placeholder="Write your comprehensive answer here..."
-                            )
-                        
-                        # Store the answer in form_answers for submission
-                        if answer and answer.strip():
-                            form_answers[str(q_id)] = answer.strip()
-                    
-                    st.markdown("---")
-                
-                # Submit button
-                submitted = st.form_submit_button("🚀 Submit Exam", type="primary")
-                
-                if submitted:
-                    if len(form_answers) == 0:
-                        st.error("Please answer at least one question before submitting.")
-                    else:
-                        # Update session state with form answers
-                        st.session_state.exam_answers = form_answers
-                        
-                        # Show submission progress
-                        st.info(f"📝 Submitted {len(form_answers)} out of {len(questions)} questions")
-                        
-                        # Evaluate answers
-                        with st.spinner("🤖 Evaluating your exam..."):
-                            evaluation = evaluate_exam_answers(
-                                st.session_state.questions_data,
-                                st.session_state.exam_answers,
-                                uploaded_answers
-                            )
-                            
-                            if evaluation:
-                                st.session_state.evaluation_result = evaluation
-                                st.session_state.exam_submitted = True
-                                st.success("✅ Exam submitted and evaluated successfully!")
-                                time.sleep(2)  # Brief pause for user to see success message
-                                st.rerun()
-                            else:
-                                st.error("❌ Error during evaluation. Please try again.")
-        else:
-            st.success("✅ Exam completed! Check your results in the 'View Results' section.")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("📊 View Results", use_container_width=True):
-                    st.rerun()
-            with col2:
-                if st.button("🔄 Retake Exam", use_container_width=True):
-                    st.session_state.exam_submitted = False
-                    st.session_state.exam_answers = {}
-                    st.session_state.evaluation_result = None
-                    st.rerun()
 
 # ==========================
-# PAGE 3: VIEW RESULTS
+# PAGE 3: COMPREHENSIVE RESULTS & ANALYTICS
 # ==========================
 elif page == "📊 View Results":
     if not st.session_state.evaluation_result:
@@ -3009,9 +2929,10 @@ elif page == "📊 View Results":
     else:
         result = st.session_state.evaluation_result
         
-        # Results summary
-        st.header("📊 Exam Results")
+        # Results summary header
+        st.header("📊 Comprehensive Exam Results")
         
+        # Performance metrics
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -3024,20 +2945,16 @@ elif page == "📊 View Results":
             st.metric("Percentage", f"{result['percentage']:.1f}%")
         
         with col4:
-            if result['percentage'] >= 80:
-                grade = "A+"
+            grade = result.get('grade', 'N/A')
+            if grade in ['A+', 'A']:
                 color = "🟢"
-            elif result['percentage'] >= 70:
-                grade = "A"
+            elif grade in ['B+', 'B']:
                 color = "🟡"
-            elif result['percentage'] >= 60:
-                grade = "B"
+            elif grade in ['C+', 'C']:
                 color = "🟠"
-            elif result['percentage'] >= 50:
-                grade = "C"
-                color = "🔴"
+            elif grade == 'D':
+                color = "�"
             else:
-                grade = "F"
                 color = "⚫"
             
             st.metric("Grade", f"{color} {grade}")
@@ -3045,14 +2962,140 @@ elif page == "📊 View Results":
         # Progress bar
         st.progress(result['percentage'] / 100)
         
-        # Detailed results
-        st.subheader("📝 Question-wise Analysis")
+        # Answer format summary (if available)
+        if 'summary' in result:
+            summary = result['summary']
+            st.subheader("📈 Submission Summary")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Questions", summary['total_questions'])
+            with col2:
+                st.metric("Answered", summary['answered_questions'])
+            with col3:
+                st.metric("Text Answers", summary.get('text_answers', 0))
+            with col4:
+                combined_media = summary.get('image_answers', 0) + summary.get('audio_answers', 0)
+                st.metric("Media Answers", combined_media)
+        
+        # Detailed question-wise analysis
+        st.subheader("� Question-wise Analysis")
         
         for eval_item in result['evaluations']:
             q_id = eval_item['question_id']
-            q_type = eval_item['type']
+            q_type = eval_item['type'].upper()
             marks_obtained = eval_item.get('marks_obtained', 0)
-            total_marks = eval_item['total_marks']
+            total_marks = eval_item['marks']
+            answer_format = eval_item.get('format', 'text')
+            
+            # Create expandable section for each question
+            with st.expander(f"Question {q_id} ({q_type}) - {marks_obtained}/{total_marks} marks", 
+                           expanded=False):
+                
+                # Question text
+                st.markdown(f"**Question:** {eval_item['question']}")
+                
+                # Student answer
+                st.markdown(f"**Your Answer:** {eval_item.get('student_answer', 'No answer provided')}")
+                
+                # Answer format indicator
+                if answer_format != 'text' and answer_format != 'none':
+                    st.info(f"📤 Submitted via: {answer_format}")
+                
+                # Marks breakdown
+                percentage_q = (marks_obtained / total_marks) * 100 if total_marks > 0 else 0
+                st.progress(percentage_q / 100)
+                
+                # Feedback
+                feedback = eval_item.get('feedback', 'No feedback available')
+                if marks_obtained == total_marks:
+                    st.success(f"✅ **Feedback:** {feedback}")
+                elif marks_obtained > 0:
+                    st.info(f"📝 **Feedback:** {feedback}")
+                else:
+                    st.error(f"❌ **Feedback:** {feedback}")
+                
+                # Suggestions for improvement
+                suggestions = eval_item.get('suggestions', '')
+                if suggestions:
+                    st.markdown(f"� **Suggestions:** {suggestions}")
+        
+        # Performance analysis
+        st.subheader("📊 Performance Analysis")
+        
+        # Calculate question type performance
+        type_performance = {}
+        for eval_item in result['evaluations']:
+            q_type = eval_item['type']
+            if q_type not in type_performance:
+                type_performance[q_type] = {'obtained': 0, 'total': 0, 'count': 0}
+            
+            type_performance[q_type]['obtained'] += eval_item.get('marks_obtained', 0)
+            type_performance[q_type]['total'] += eval_item['marks']
+            type_performance[q_type]['count'] += 1
+        
+        # Display performance by question type
+        for q_type, performance in type_performance.items():
+            if performance['total'] > 0:
+                type_percentage = (performance['obtained'] / performance['total']) * 100
+                st.metric(
+                    f"{q_type.upper()} Questions ({performance['count']})",
+                    f"{performance['obtained']:.1f}/{performance['total']} ({type_percentage:.1f}%)"
+                )
+        
+        # Action buttons
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🔄 Retake Exam", use_container_width=True):
+                st.session_state.exam_submitted = False
+                st.session_state.exam_answers = {}
+                st.session_state.answer_images = {}
+                st.session_state.answer_audio = {}
+                st.session_state.current_question = 0
+                st.session_state.evaluation_result = None
+                st.success("Exam reset! You can now retake the exam.")
+                st.rerun()
+        
+        with col2:
+            # Download results as text
+            results_text = f"""EXAM RESULTS SUMMARY
+===================
+Total Marks: {result['total_marks']}
+Obtained Marks: {result['obtained_marks']:.1f}
+Percentage: {result['percentage']:.1f}%
+Grade: {result.get('grade', 'N/A')}
+Timestamp: {result.get('timestamp', 'N/A')}
+
+QUESTION-WISE BREAKDOWN:
+"""
+            for eval_item in result['evaluations']:
+                results_text += f"\\nQ{eval_item['question_id']}: {eval_item.get('marks_obtained', 0)}/{eval_item['marks']} marks"
+                results_text += f"\\nFeedback: {eval_item.get('feedback', 'No feedback')}"
+                if eval_item.get('suggestions'):
+                    results_text += f"\\nSuggestions: {eval_item['suggestions']}"
+                results_text += "\\n" + "-"*50
+            
+            st.download_button(
+                label="📋 Download Results",
+                data=results_text,
+                file_name=f"exam_results_{result.get('timestamp', 'unknown').replace(':', '-')}.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
+        
+        with col3:
+            if st.button("📝 Generate New Questions", use_container_width=True):
+                # Reset to question generation page
+                st.session_state.exam_submitted = False
+                st.session_state.exam_answers = {}
+                st.session_state.answer_images = {}
+                st.session_state.answer_audio = {}
+                st.session_state.current_question = 0
+                st.session_state.evaluation_result = None
+                st.session_state.questions_data = None
+                st.rerun()
             
             with st.expander(f"Question {q_id} - {marks_obtained}/{total_marks} marks"):
                 st.markdown(f"**Question:** {eval_item['question']}")
