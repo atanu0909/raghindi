@@ -1809,6 +1809,233 @@ Respond ONLY in this JSON format (no other text):
         st.error(f"Error evaluating answers: {str(e)}")
         return None
 
+def evaluate_comprehensive_exam(questions, text_answers, image_answers, audio_answers):
+    """Comprehensive AI evaluation of exam answers across text, image, and audio formats"""
+    try:
+        model = configure_gemini()
+        
+        # Prepare evaluation data
+        evaluation_data = []
+        total_marks = 0
+        obtained_marks = 0
+        
+        for question in questions:
+            q_id = str(question['id'])
+            q_type = question['type']
+            q_text = question['question']
+            q_marks = question['marks']
+            total_marks += q_marks
+            
+            # Get student answer in any format
+            student_text = text_answers.get(q_id, "")
+            student_image = image_answers.get(q_id, None)
+            student_audio = audio_answers.get(q_id, None)
+            
+            # Determine answer format
+            answer_format = []
+            if student_text: answer_format.append("text")
+            if student_image: answer_format.append("image")
+            if student_audio: answer_format.append("audio")
+            
+            if not answer_format:
+                # No answer provided
+                evaluation_data.append({
+                    'question_id': q_id,
+                    'question': q_text,
+                    'type': q_type,
+                    'marks': q_marks,
+                    'student_answer': "No answer provided",
+                    'format': "none",
+                    'marks_obtained': 0,
+                    'feedback': "No answer submitted for this question.",
+                    'suggestions': "Please attempt the question next time."
+                })
+                continue
+            
+            # Evaluate based on question type and answer format
+            if q_type == "mcq":
+                # MCQ evaluation (mainly text-based)
+                if student_text:
+                    correct_answer = question.get('correct_answer', '')
+                    if student_text == correct_answer or any(opt for opt in question.get('options', []) if opt == student_text and correct_answer in opt):
+                        marks_scored = q_marks
+                        feedback = "✅ Correct answer!"
+                    else:
+                        marks_scored = 0
+                        feedback = f"❌ Incorrect. Correct answer: {correct_answer}"
+                else:
+                    # Evaluate image/audio answer for MCQ
+                    marks_scored, feedback = evaluate_multimodal_mcq(question, student_image, student_audio, model)
+                
+                evaluation_data.append({
+                    'question_id': q_id,
+                    'question': q_text,
+                    'type': q_type,
+                    'marks': q_marks,
+                    'student_answer': student_text or f"Submitted via {'/'.join(answer_format)}",
+                    'format': "/".join(answer_format),
+                    'marks_obtained': marks_scored,
+                    'feedback': feedback,
+                    'suggestions': "Review the concept for better understanding."
+                })
+                obtained_marks += marks_scored
+                
+            else:
+                # Subjective question evaluation
+                marks_scored, detailed_feedback, suggestions = evaluate_subjective_answer(
+                    question, student_text, student_image, student_audio, model
+                )
+                
+                evaluation_data.append({
+                    'question_id': q_id,
+                    'question': q_text,
+                    'type': q_type,
+                    'marks': q_marks,
+                    'student_answer': student_text or f"Submitted via {'/'.join(answer_format)}",
+                    'format': "/".join(answer_format),
+                    'marks_obtained': marks_scored,
+                    'feedback': detailed_feedback,
+                    'suggestions': suggestions
+                })
+                obtained_marks += marks_scored
+        
+        # Calculate final results
+        percentage = (obtained_marks / total_marks) * 100 if total_marks > 0 else 0
+        grade = calculate_grade(percentage)
+        
+        return {
+            'total_marks': total_marks,
+            'obtained_marks': obtained_marks,
+            'percentage': percentage,
+            'grade': grade,
+            'evaluations': evaluation_data,
+            'summary': {
+                'total_questions': len(questions),
+                'answered_questions': len([e for e in evaluation_data if e['marks_obtained'] > 0]),
+                'text_answers': len(text_answers),
+                'image_answers': len(image_answers),
+                'audio_answers': len(audio_answers)
+            },
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+    except Exception as e:
+        st.error(f"Error evaluating comprehensive exam: {str(e)}")
+        return None
+
+def evaluate_multimodal_mcq(question, image_answer, audio_answer, model):
+    """Evaluate MCQ answers from image or audio format"""
+    try:
+        if image_answer:
+            # Use Gemini Vision to extract answer from image
+            prompt = f"""Look at this handwritten answer for the following MCQ question:
+            
+            QUESTION: {question['question']}
+            OPTIONS: {', '.join(question.get('options', []))}
+            CORRECT ANSWER: {question.get('correct_answer', '')}
+            
+            Extract the student's selected answer from the image and evaluate if it's correct.
+            Return: CORRECT/INCORRECT and brief explanation."""
+            
+            # Convert image for Gemini Vision
+            if image_answer.type.startswith('image'):
+                from PIL import Image as PILImage
+                image = PILImage.open(image_answer)
+                response = model.generate_content([prompt, image])
+                
+                if "CORRECT" in response.text.upper():
+                    return question['marks'], "✅ Correct answer identified from image!"
+                else:
+                    return 0, f"❌ Incorrect answer. {response.text}"
+        
+        if audio_answer:
+            # For audio, we'd need speech-to-text conversion
+            # This is a placeholder for audio processing
+            return 0, "🎤 Audio evaluation requires speech-to-text processing (coming soon)"
+            
+        return 0, "No valid answer format found"
+        
+    except Exception as e:
+        return 0, f"Error evaluating multimodal MCQ: {str(e)}"
+
+def evaluate_subjective_answer(question, text_answer, image_answer, audio_answer, model):
+    """Evaluate subjective answers with detailed feedback"""
+    try:
+        q_marks = question['marks']
+        sample_answer = question.get('sample_answer', '')
+        
+        # Prepare evaluation prompt
+        evaluation_prompt = f"""Evaluate this student's answer for the following question:
+        
+        QUESTION ({q_marks} marks): {question['question']}
+        SAMPLE ANSWER: {sample_answer if sample_answer else 'No sample answer provided'}
+        
+        Student's Answer Format: {"Text" if text_answer else ""} {"Image" if image_answer else ""} {"Audio" if audio_answer else ""}
+        
+        TEXT ANSWER: {text_answer if text_answer else "Not provided"}
+        
+        Please provide:
+        1. Marks out of {q_marks} (considering accuracy, completeness, clarity)
+        2. Detailed feedback on strengths and weaknesses
+        3. Specific suggestions for improvement
+        
+        FORMAT:
+        MARKS: X/{q_marks}
+        FEEDBACK: [detailed feedback]
+        SUGGESTIONS: [improvement suggestions]"""
+        
+        # Evaluate based on available formats
+        if image_answer and image_answer.type.startswith('image'):
+            # Use Gemini Vision for image-based answers
+            from PIL import Image as PILImage
+            image = PILImage.open(image_answer)
+            response = model.generate_content([evaluation_prompt + "\n\nEvaluate the handwritten answer in the image.", image])
+        else:
+            # Text-based evaluation
+            response = model.generate_content(evaluation_prompt)
+        
+        # Parse the response
+        response_text = response.text
+        
+        # Extract marks
+        marks_scored = 0
+        if "MARKS:" in response_text:
+            marks_line = [line for line in response_text.split('\n') if 'MARKS:' in line][0]
+            try:
+                marks_scored = float(marks_line.split('/')[0].split(':')[1].strip())
+                marks_scored = min(marks_scored, q_marks)  # Cap at max marks
+            except:
+                marks_scored = q_marks * 0.5  # Default to 50% if parsing fails
+        
+        # Extract feedback
+        feedback = "Good attempt!"
+        if "FEEDBACK:" in response_text:
+            feedback_start = response_text.find("FEEDBACK:") + len("FEEDBACK:")
+            feedback_end = response_text.find("SUGGESTIONS:") if "SUGGESTIONS:" in response_text else len(response_text)
+            feedback = response_text[feedback_start:feedback_end].strip()
+        
+        # Extract suggestions
+        suggestions = "Keep practicing!"
+        if "SUGGESTIONS:" in response_text:
+            suggestions_start = response_text.find("SUGGESTIONS:") + len("SUGGESTIONS:")
+            suggestions = response_text[suggestions_start:].strip()
+        
+        return marks_scored, feedback, suggestions
+        
+    except Exception as e:
+        return 0, f"Error in evaluation: {str(e)}", "Please try again."
+
+def calculate_grade(percentage):
+    """Calculate letter grade based on percentage"""
+    if percentage >= 90: return "A+"
+    elif percentage >= 80: return "A"
+    elif percentage >= 70: return "B+"
+    elif percentage >= 60: return "B"
+    elif percentage >= 50: return "C+"
+    elif percentage >= 40: return "C"
+    elif percentage >= 30: return "D"
+    else: return "F"
+
 # ==========================
 # PAGE 1: QUESTION GENERATION
 # ==========================
@@ -2417,7 +2644,7 @@ if page == "📝 Generate Questions":
                 st.warning("⚠️ Please configure at least one type of question in the sidebar.")
 
 # ==========================
-# PAGE 2: TAKE EXAM
+# PAGE 2: INTERACTIVE EXAM PLATFORM
 # ==========================
 elif page == "🎯 Take Exam":
     if not st.session_state.questions_data:
@@ -2427,47 +2654,269 @@ elif page == "🎯 Take Exam":
     else:
         questions = st.session_state.questions_data['questions']
         
-        # Exam interface
-        st.subheader(f"📝 Exam - {len(questions)} Questions")
+        # Initialize exam session
+        if 'current_question' not in st.session_state:
+            st.session_state.current_question = 0
+        if 'exam_answers' not in st.session_state:
+            st.session_state.exam_answers = {}
+        if 'answer_images' not in st.session_state:
+            st.session_state.answer_images = {}
+        if 'answer_audio' not in st.session_state:
+            st.session_state.answer_audio = {}
         
-        # Timer (optional)
+        # Exam header
+        total_marks = sum(q['marks'] for q in questions)
+        st.header("🎯 Interactive Exam Platform")
+        
+        # Progress bar
+        progress = (st.session_state.current_question + 1) / len(questions)
+        st.progress(progress, text=f"Question {st.session_state.current_question + 1} of {len(questions)}")
+        
+        # Exam info sidebar
         with st.sidebar:
-            st.header("⏱️ Exam Info")
-            total_marks = sum(q['marks'] for q in questions)
-            st.info(f"Total Questions: {len(questions)}")
-            st.info(f"Total Marks: {total_marks}")
+            st.header("📋 Exam Information")
+            st.info(f"📄 Total Questions: {len(questions)}")
+            st.info(f"🏆 Total Marks: {total_marks}")
             
-            # Answer upload option
-            st.subheader("📤 Upload Answer Sheet")
-            uploaded_answers = st.file_uploader(
-                "Upload handwritten answers (optional)",
-                type=['jpg', 'jpeg', 'png', 'pdf'],
-                help="Upload photos of your handwritten answers for evaluation"
+            # Answered questions tracker
+            answered_count = len([q for q in questions if str(q['id']) in st.session_state.exam_answers or 
+                                str(q['id']) in st.session_state.answer_images or 
+                                str(q['id']) in st.session_state.answer_audio])
+            st.info(f"✅ Answered: {answered_count}/{len(questions)}")
+            
+            # Question navigation
+            st.subheader("🧭 Navigation")
+            selected_q = st.selectbox(
+                "Jump to Question:",
+                range(len(questions)),
+                index=st.session_state.current_question,
+                format_func=lambda x: f"Q{x+1} - {questions[x]['type'].upper()}"
             )
+            
+            if selected_q != st.session_state.current_question:
+                st.session_state.current_question = selected_q
+                st.rerun()
+            
+            # Quick answer overview
+            st.subheader("📋 Answer Status")
+            for i, q in enumerate(questions):
+                q_id = str(q['id'])
+                status = "✅" if (q_id in st.session_state.exam_answers or 
+                                q_id in st.session_state.answer_images or 
+                                q_id in st.session_state.answer_audio) else "⚪"
+                st.write(f"{status} Q{i+1} ({q['marks']}m)")
         
-        # Display questions and collect answers
-        if not st.session_state.exam_submitted:
-            with st.form("exam_form"):
-                # Initialize exam answers dict for this session
-                form_answers = {}
+        # Current question display
+        current_q = questions[st.session_state.current_question]
+        q_id = str(current_q['id'])
+        q_type = current_q['type']
+        q_text = current_q['question']
+        q_marks = current_q['marks']
+        
+        # Question card
+        with st.container():
+            st.markdown(f"""<div style='background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #1f77b4;'>
+            <h3>📝 Question {st.session_state.current_question + 1} ({q_marks} marks)</h3>
+            <h4>{q_type.upper()}</h4>
+            <p style='font-size: 16px;'>{q_text}</p>
+            </div>""", unsafe_allow_html=True)
+            
+            # Display MCQ options if applicable
+            if q_type == "mcq" and 'options' in current_q:
+                st.markdown("**Options:**")
+                for option in current_q['options']:
+                    st.write(f"- {option}")
+        
+        st.markdown("---")
+        
+        # Answer submission section
+        st.subheader("📝 Submit Your Answer")
+        
+        # Answer method selection
+        answer_method = st.radio(
+            "Choose your answer submission method:",
+            ["📝 Type Answer", "📷 Upload Image", "🎤 Record Audio", "� Upload Audio File"],
+            horizontal=True,
+            key=f"method_{q_id}"
+        )
+        
+        # Store previous answers to show
+        previous_text = st.session_state.exam_answers.get(q_id, "")
+        previous_image = st.session_state.answer_images.get(q_id, None)
+        previous_audio = st.session_state.answer_audio.get(q_id, None)
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            if answer_method == "📝 Type Answer":
+                # Text answer input
+                if q_type == "mcq":
+                    # MCQ radio buttons
+                    if 'options' in current_q:
+                        selected_option = st.radio(
+                            "Select your answer:",
+                            current_q['options'],
+                            index=None if not previous_text else 
+                                (current_q['options'].index(previous_text) if previous_text in current_q['options'] else None),
+                            key=f"mcq_{q_id}"
+                        )
+                        if selected_option:
+                            st.session_state.exam_answers[q_id] = selected_option
+                else:
+                    # Text area for subjective questions
+                    answer_text = st.text_area(
+                        "Write your answer:",
+                        value=previous_text,
+                        height=200,
+                        placeholder="Enter your detailed answer here...",
+                        key=f"text_{q_id}"
+                    )
+                    if answer_text:
+                        st.session_state.exam_answers[q_id] = answer_text
+            
+            elif answer_method == "📷 Upload Image":
+                # Image upload for handwritten answers
+                uploaded_image = st.file_uploader(
+                    "Upload your handwritten answer:",
+                    type=['jpg', 'jpeg', 'png', 'pdf'],
+                    key=f"img_{q_id}",
+                    help="Upload a clear photo of your handwritten answer"
+                )
                 
-                for i, question in enumerate(questions):
-                    q_id = question['id']
-                    q_type = question['type']
-                    q_text = question['question']
-                    q_marks = question['marks']
+                if uploaded_image:
+                    st.session_state.answer_images[q_id] = uploaded_image
+                    # Show preview
+                    if uploaded_image.type.startswith('image'):
+                        st.image(uploaded_image, caption="Uploaded Answer", width=400)
+                    else:
+                        st.success(f"✅ PDF uploaded: {uploaded_image.name}")
+                
+                # Show previously uploaded image
+                elif previous_image:
+                    st.info("📋 Previously uploaded answer:")
+                    if previous_image.type.startswith('image'):
+                        st.image(previous_image, caption="Your Previous Answer", width=300)
+                    else:
+                        st.success(f"📄 Previous PDF: {previous_image.name}")
+            
+            elif answer_method == "🎤 Record Audio":
+                # Audio recording interface
+                st.markdown("🎤 **Audio Recording**")
+                st.info("🚧 Audio recording feature coming soon! For now, please use 'Upload Audio File' option.")
+                
+                # Placeholder for audio recording functionality
+                if st.button("🎙️ Start Recording", key=f"record_{q_id}"):
+                    st.warning("🔄 Recording functionality will be implemented in the next update!")
+            
+            elif answer_method == "📎 Upload Audio File":
+                # Audio file upload
+                uploaded_audio = st.file_uploader(
+                    "Upload your audio answer:",
+                    type=['mp3', 'wav', 'm4a', 'ogg'],
+                    key=f"audio_{q_id}",
+                    help="Upload a clear audio recording of your answer"
+                )
+                
+                if uploaded_audio:
+                    st.session_state.answer_audio[q_id] = uploaded_audio
+                    st.audio(uploaded_audio, format='audio/wav')
+                    st.success(f"✅ Audio uploaded: {uploaded_audio.name}")
+                
+                # Show previously uploaded audio
+                elif previous_audio:
+                    st.info("📋 Previously uploaded audio:")
+                    st.audio(previous_audio, format='audio/wav')
+                    st.success(f"🎤 Previous audio: {previous_audio.name}")
+        
+        with col2:
+            # Answer status and tips
+            st.markdown("### 📝 Answer Tips")
+            
+            if q_type == "mcq":
+                st.info("🎯 Select the best option")
+            elif q_type == "short":
+                st.info("📝 Keep answer concise (2-3 lines)")
+            elif q_type == "medium":
+                st.info("📄 Provide detailed explanation")
+            elif q_type == "long":
+                st.info("📜 Write comprehensive answer")
+            else:
+                st.info("💡 Apply concepts practically")
+            
+            # Show current answer status
+            if q_id in st.session_state.exam_answers:
+                st.success("✅ Text answer saved")
+            if q_id in st.session_state.answer_images:
+                st.success("✅ Image answer saved")
+            if q_id in st.session_state.answer_audio:
+                st.success("✅ Audio answer saved")
+        
+        # Navigation buttons
+        st.markdown("---")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            if st.session_state.current_question > 0:
+                if st.button("⬅️ Previous Question", use_container_width=True):
+                    st.session_state.current_question -= 1
+                    st.rerun()
+        
+        with col2:
+            if st.session_state.current_question < len(questions) - 1:
+                if st.button("➡️ Next Question", use_container_width=True):
+                    st.session_state.current_question += 1
+                    st.rerun()
+        
+        with col3:
+            # Clear current answer
+            if st.button("🗑️ Clear Answer", use_container_width=True):
+                if q_id in st.session_state.exam_answers:
+                    del st.session_state.exam_answers[q_id]
+                if q_id in st.session_state.answer_images:
+                    del st.session_state.answer_images[q_id]
+                if q_id in st.session_state.answer_audio:
+                    del st.session_state.answer_audio[q_id]
+                st.rerun()
+        
+        with col4:
+            # Submit exam button
+            total_answered = len(st.session_state.exam_answers) + len(st.session_state.answer_images) + len(st.session_state.answer_audio)
+            
+            if st.button("🏆 Submit Exam", 
+                        type="primary", 
+                        use_container_width=True,
+                        disabled=total_answered == 0):
+                
+                # Confirmation dialog
+                if total_answered < len(questions):
+                    st.warning(f"⚠️ You have answered {total_answered} out of {len(questions)} questions. Unanswered questions will receive 0 marks.")
                     
-                    st.markdown(f"### Question {q_id} ({q_marks} marks)")
-                    st.markdown(q_text)
-                    
-                    if q_type == "mcq":
-                        # Multiple choice question
-                        options = question.get('options', [])
-                        if options:
-                            user_answer = st.radio(
-                                f"Select your answer for Q{q_id}:",
-                                options,
-                                key=f"q_{q_id}",
+                    if st.button("✅ Yes, Submit Anyway", type="primary"):
+                        st.session_state.exam_submitted = True
+                        # Process exam submission
+                        with st.spinner("🤖 AI is evaluating your answers..."):
+                            evaluation_result = evaluate_comprehensive_exam(
+                                questions, 
+                                st.session_state.exam_answers,
+                                st.session_state.answer_images,
+                                st.session_state.answer_audio
+                            )
+                            st.session_state.evaluation_result = evaluation_result
+                        st.success("✅ Exam submitted successfully!")
+                        st.rerun()
+                else:
+                    st.session_state.exam_submitted = True
+                    # Process exam submission
+                    with st.spinner("🤖 AI is evaluating your answers..."):
+                        evaluation_result = evaluate_comprehensive_exam(
+                            questions, 
+                            st.session_state.exam_answers,
+                            st.session_state.answer_images,
+                            st.session_state.answer_audio
+                        )
+                        st.session_state.evaluation_result = evaluation_result
+                    st.success("✅ Exam submitted successfully!")
+                    st.rerun()
                                 index=None
                             )
                             # Store the answer in form_answers for submission
