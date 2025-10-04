@@ -274,6 +274,15 @@ REQUIREMENTS:
 - Ensure questions align with the specified cognitive levels
 - Incorporate any custom instructions provided
 
+CRITICAL SPACING AND FORMATTING:
+- Maintain EXACT spacing as shown in the pattern (line breaks, indentation)
+- Add proper line gaps between sections and questions as demonstrated
+- Preserve the pattern's paragraph spacing and text alignment
+- Follow the pattern's approach to question numbering and spacing
+- Maintain consistent spacing around marks notation
+- Ensure answer spaces or blanks match the pattern's formatting
+- Keep the same visual hierarchy and structure throughout
+
 CONTENT GUIDELINES:
 - Ensure questions are based on the PDF content
 - Match the difficulty and complexity shown in the pattern
@@ -311,6 +320,15 @@ FORMATTING REQUIREMENTS:
 - {"Provide sample answers, hints, or marking schemes" if include_answers else "Questions only"}
 - Apply the specified question presentation style
 - Consider the exam type and time limit when setting question complexity
+
+CRITICAL SPACING AND FORMATTING:
+- Add DOUBLE line breaks (two empty lines) between each major section
+- Add SINGLE line break (one empty line) between individual questions
+- Leave adequate spacing after question numbers (e.g., "1. " followed by space)
+- For MCQs: Place each option on a separate line with proper indentation
+- Add proper spacing before and after marks notation [e.g., "    [5 marks]"]
+- Ensure consistent paragraph spacing for multi-part questions
+- Use clear visual separation between question text and answer spaces
 
 CONTENT GUIDELINES:
 - Ensure questions cover different aspects of the document
@@ -451,10 +469,56 @@ Make questions comprehensive and varied."""
             st.session_state.pattern_format = None
             st.session_state.extracted_images = None
         
-        return display_response.text
+        # Format the questions with proper line spacing
+        formatted_questions = format_questions_with_proper_spacing(display_response.text)
+        return formatted_questions
     except Exception as e:
         st.error(f"Error generating questions: {str(e)}")
         return None
+
+def format_questions_with_proper_spacing(text):
+    """Format questions with proper line gaps and spacing for better readability"""
+    if not text:
+        return text
+    
+    # Split into lines
+    lines = text.split('\n')
+    formatted_lines = []
+    
+    for i, line in enumerate(lines):
+        stripped_line = line.strip()
+        
+        # Add the current line
+        formatted_lines.append(line)
+        
+        # Add extra spacing after headings (lines that are all caps or end with colons)
+        if stripped_line and (stripped_line.isupper() or stripped_line.endswith(':') or 
+                            any(header in stripped_line.upper() for header in ['SECTION', 'PART', 'MCQ', 'SHORT', 'MEDIUM', 'LONG', 'CASE STUDY'])):
+            if i < len(lines) - 1 and lines[i + 1].strip():  # Don't add if next line is already empty
+                formatted_lines.append('')
+        
+        # Add spacing after question numbers (lines starting with digits followed by period or closing parenthesis)
+        elif stripped_line and (stripped_line[0].isdigit() and len(stripped_line) > 2 and stripped_line[1] in '.):'):
+            # Check if this is a question (not an MCQ option)
+            if not any(opt in stripped_line.upper()[:10] for opt in ['(A)', '(B)', '(C)', '(D)', 'A)', 'B)', 'C)', 'D)']):
+                if i < len(lines) - 1 and lines[i + 1].strip():
+                    formatted_lines.append('')
+        
+        # Add spacing after marks notation (lines containing [marks] or (marks))
+        elif '[' in stripped_line and 'mark' in stripped_line.lower() and ']' in stripped_line:
+            if i < len(lines) - 1 and lines[i + 1].strip():
+                formatted_lines.append('')
+                formatted_lines.append('')  # Double spacing after marks
+        
+        # Add spacing after question sections that end with periods or question marks
+        elif stripped_line and len(stripped_line) > 20 and stripped_line.endswith(('?', '.')):
+            # Check if next line is not an MCQ option or continuation
+            if (i < len(lines) - 1 and lines[i + 1].strip() and 
+                not any(opt in lines[i + 1].upper()[:10] for opt in ['(A)', '(B)', '(C)', '(D)', 'A)', 'B)', 'C)', 'D)']) and
+                not lines[i + 1].strip().startswith(('a)', 'b)', 'c)', 'd)'))):
+                formatted_lines.append('')
+    
+    return '\n'.join(formatted_lines)
 
 def process_pattern_file(uploaded_file):
     """Process uploaded pattern file and extract content"""
