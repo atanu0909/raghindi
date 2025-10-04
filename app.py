@@ -142,8 +142,13 @@ def pdf_to_images(pdf_file):
         st.error(f"Error processing PDF: {str(e)}")
         return []
 
-def generate_questions(images, mcq_count, short_count, medium_count, long_count, case_study_count, difficulty_level, language_instruction, include_answers, include_marks, uploaded_pattern=None, pattern_instructions=""):
-    """Generate questions from PDF images using Gemini"""
+def generate_questions(images, mcq_count, short_count, medium_count, long_count, case_study_count, 
+                      difficulty_level, language_instruction, include_answers, include_marks, 
+                      uploaded_pattern=None, pattern_instructions="", custom_instructions="",
+                      question_style="Academic/Formal Style", complexity_features=None, 
+                      bloom_levels=None, exam_type="Regular Assessment", time_limit="1.5 hours",
+                      subject_focus=None, difficulty_details=None):
+    """Generate questions from PDF images using Gemini with enhanced customization"""
     try:
         model = configure_gemini()
         
@@ -230,20 +235,35 @@ SOURCE CONTENT: Use the uploaded PDF as the source material for questions.
 
 {pattern_context}
 
+ENHANCED REQUIREMENTS:
 DIFFICULTY LEVEL: {difficulty_level}
 LANGUAGE: {language_instruction}
+QUESTION STYLE: {question_style}
+EXAM TYPE: {exam_type}
+TIME LIMIT: {time_limit}
+
+COMPLEXITY FEATURES: {complexity_features if complexity_features else "Standard question formats"}
+COGNITIVE LEVELS: {bloom_levels if bloom_levels else "Mixed cognitive levels"}
+SUBJECT FOCUS: {", ".join(subject_focus) if subject_focus else "General topics from document"}
+
+CUSTOM INSTRUCTIONS:
+{custom_instructions if custom_instructions else "Follow standard question generation practices"}
 
 REQUIREMENTS:
 - Follow the EXACT format, numbering, and structure from the pattern
 - Maintain the same question types and mark distribution as shown
 - {"Include mark allocation as shown in pattern" if include_marks else "Focus on content quality"}
 - {"Provide sample answers where indicated in pattern" if include_answers else "Generate questions only"}
+- Apply the specified difficulty distribution and complexity features
+- Ensure questions align with the specified cognitive levels
+- Incorporate any custom instructions provided
 
 CONTENT GUIDELINES:
 - Ensure questions are based on the PDF content
 - Match the difficulty and complexity shown in the pattern
 - Follow any specific formatting or organizational structure
 - Maintain consistency with the pattern's style and approach
+- Apply the specified question style and exam type considerations
 
 Generate the questions exactly as they would appear in a real exam following this pattern."""
 
@@ -253,14 +273,28 @@ Generate the questions exactly as they would appear in a real exam following thi
 QUESTION DISTRIBUTION:
 {chr(10).join(question_specs)}
 
+ENHANCED REQUIREMENTS:
 DIFFICULTY LEVEL: {difficulty_level}
+{f"DIFFICULTY DISTRIBUTION: {difficulty_details}" if difficulty_details else ""}
 LANGUAGE: {language_instruction}
+QUESTION STYLE: {question_style}
+EXAM TYPE: {exam_type}
+TIME LIMIT: {time_limit}
+
+COMPLEXITY FEATURES: {complexity_features if complexity_features else "Standard question formats"}
+COGNITIVE LEVELS: {bloom_levels if bloom_levels else "Mixed cognitive levels"}
+SUBJECT FOCUS: {", ".join(subject_focus) if subject_focus else "General topics from document"}
+
+CUSTOM INSTRUCTIONS:
+{custom_instructions if custom_instructions else "Follow standard question generation practices"}
 
 FORMATTING REQUIREMENTS:
 - Clearly separate each question type with headings
 - Number all questions sequentially
 - {"Include mark allocation for each question" if include_marks else "Focus on content quality"}
 - {"Provide sample answers, hints, or marking schemes" if include_answers else "Questions only"}
+- Apply the specified question presentation style
+- Consider the exam type and time limit when setting question complexity
 
 CONTENT GUIDELINES:
 - Ensure questions cover different aspects of the document
@@ -279,8 +313,13 @@ Please structure the output clearly with proper headings and numbering."""
 
 {pattern_context}
 
+ENHANCED REQUIREMENTS:
 DIFFICULTY LEVEL: {difficulty_level}
 LANGUAGE: {language_instruction}
+QUESTION STYLE: {question_style}
+COMPLEXITY FEATURES: {complexity_features if complexity_features else "Standard"}
+COGNITIVE LEVELS: {bloom_levels if bloom_levels else "Mixed levels"}
+CUSTOM INSTRUCTIONS: {custom_instructions if custom_instructions else "Standard practices"}
 
 Return ONLY a valid JSON object following the pattern structure with this format:
 {{
@@ -299,7 +338,8 @@ Return ONLY a valid JSON object following the pattern structure with this format
 
 Types: "mcq", "short", "medium", "long", "case_study"
 Match the pattern's question distribution and mark allocation.
-For non-MCQ questions, omit "options" and "correct_answer" fields."""
+For non-MCQ questions, omit "options" and "correct_answer" fields.
+Apply all specified requirements and custom instructions."""
 
         else:
             exam_prompt = f"""Generate exactly {total_questions} questions from the PDF content in JSON format for an exam system.
@@ -307,8 +347,16 @@ For non-MCQ questions, omit "options" and "correct_answer" fields."""
 QUESTION DISTRIBUTION:
 {chr(10).join(question_specs)}
 
+ENHANCED REQUIREMENTS:
 DIFFICULTY LEVEL: {difficulty_level}
+{f"DIFFICULTY DISTRIBUTION: {difficulty_details}" if difficulty_details else ""}
 LANGUAGE: {language_instruction}
+QUESTION STYLE: {question_style}
+EXAM TYPE: {exam_type}
+COMPLEXITY FEATURES: {complexity_features if complexity_features else "Standard"}
+COGNITIVE LEVELS: {bloom_levels if bloom_levels else "Mixed levels"}
+SUBJECT FOCUS: {", ".join(subject_focus) if subject_focus else "General"}
+CUSTOM INSTRUCTIONS: {custom_instructions if custom_instructions else "Standard practices"}
 
 Return ONLY a valid JSON object with this exact structure:
 {{
@@ -1931,21 +1979,243 @@ if page == "📝 Generate Questions":
             if pattern_instructions:
                 st.info(f"📝 Additional instructions: {pattern_instructions}")
         
-        # Difficulty Distribution
-        st.subheader("🎯 Difficulty Distribution")
+        # Enhanced Difficulty Configuration
+        st.subheader("🎯 Advanced Difficulty Settings")
+        
+        # Overall difficulty level
         difficulty_level = st.selectbox(
-            "Overall Difficulty Mix",
-            ["Balanced (Easy:Medium:Hard = 4:4:2)", "Easy Focus (6:3:1)", "Medium Focus (3:5:2)", "Hard Focus (2:3:5)", "Custom"],
-            index=0
+            "📊 Overall Difficulty Level",
+            [
+                "Very Easy (School Level)",
+                "Easy (Undergraduate Level)", 
+                "Medium (Graduate Level)",
+                "Hard (Post-Graduate Level)",
+                "Very Hard (Research Level)",
+                "Mixed Difficulty (Gradual Progression)",
+                "Custom Difficulty Distribution"
+            ],
+            index=2,
+            help="Set the overall difficulty level for all questions"
         )
         
-        # Language and Format Settings
-        st.subheader("🌍 Language & Format")
-        language_instruction = st.selectbox(
-            "Language Preference",
-            ["Maintain original document language", "English only", "Hindi only", "Bilingual (English + Hindi)"],
+        # Custom difficulty distribution
+        difficulty_details = {}
+        if "Custom" in difficulty_level:
+            st.markdown("##### 🎯 Custom Difficulty Distribution")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                easy_percent = st.slider("Easy Questions %", 0, 100, 40, 5)
+            with col2:
+                medium_percent = st.slider("Medium Questions %", 0, 100, 40, 5)
+            with col3:
+                hard_percent = st.slider("Hard Questions %", 0, 100, 20, 5)
+            
+            total_percent = easy_percent + medium_percent + hard_percent
+            if total_percent != 100:
+                st.warning(f"⚠️ Total percentage: {total_percent}% (should be 100%)")
+            else:
+                st.success(f"✅ Distribution: {easy_percent}% Easy, {medium_percent}% Medium, {hard_percent}% Hard")
+                difficulty_details = {
+                    "easy_percent": easy_percent,
+                    "medium_percent": medium_percent, 
+                    "hard_percent": hard_percent
+                }
+        
+        # Question complexity options
+        st.markdown("##### 🧠 Question Complexity Features")
+        
+        complexity_options = st.multiselect(
+            "Select complexity features to include:",
+            [
+                "🔗 Multi-step reasoning questions",
+                "📊 Data interpretation questions", 
+                "🧮 Numerical problem solving",
+                "📈 Graph/Chart analysis",
+                "🔍 Critical thinking scenarios",
+                "💡 Application-based questions",
+                "🔬 Research methodology questions",
+                "🎯 Case study analysis",
+                "📝 Essay-type questions",
+                "🧩 Puzzle and logic questions"
+            ],
+            default=["💡 Application-based questions", "🔍 Critical thinking scenarios"],
+            help="Choose types of complex question formats to include"
+        )
+        
+        # Bloom's Taxonomy Level
+        st.markdown("##### 🧠 Cognitive Levels (Bloom's Taxonomy)")
+        bloom_levels = st.multiselect(
+            "Include questions testing these cognitive levels:",
+            [
+                "📖 Remember (Recall facts, basic concepts)",
+                "🤔 Understand (Explain ideas, concepts)", 
+                "🔧 Apply (Use information in new situations)",
+                "🔍 Analyze (Draw connections, examine)",
+                "⚖️ Evaluate (Justify decisions, critique)",
+                "🏗️ Create (Produce new work, design solutions)"
+            ],
+            default=["🤔 Understand (Explain ideas, concepts)", "🔧 Apply (Use information in new situations)", "🔍 Analyze (Draw connections, examine)"],
+            help="Select cognitive complexity levels based on Bloom's Taxonomy"
+        )
+        
+        # Enhanced Language and Format Settings
+        st.subheader("🌍 Language & Regional Settings")
+        
+        # Regional Indian Languages Support
+        indian_languages = {
+            "English": "English only",
+            "Hindi": "Hindi (हिंदी)",
+            "Bengali": "Bengali (বাংলা)",
+            "Telugu": "Telugu (తెలుగు)",
+            "Marathi": "Marathi (मराठी)",
+            "Tamil": "Tamil (தமிழ்)",
+            "Gujarati": "Gujarati (ગુજરાતી)",
+            "Kannada": "Kannada (ಕನ್ನಡ)",
+            "Odia": "Odia (ଓଡ଼ିଆ)",
+            "Malayalam": "Malayalam (മലയാളം)",
+            "Punjabi": "Punjabi (ਪੰਜਾਬੀ)",
+            "Assamese": "Assamese (অসমীয়া)",
+            "Urdu": "Urdu (اردو)",
+            "Sanskrit": "Sanskrit (संस्कृत)",
+            "Nepali": "Nepali (नेपाली)",
+            "Konkani": "Konkani (कोंकणी)",
+            "Manipuri": "Manipuri (মৈতৈলোন্)",
+            "Sindhi": "Sindhi (سنڌي)",
+            "Bodo": "Bodo (बड़ो)",
+            "Dogri": "Dogri (डोगरी)",
+            "Kashmiri": "Kashmiri (کٲشُر)",
+            "Maithili": "Maithili (मैथिली)",
+            "Santali": "Santali (ᱥᱟᱱᱛᱟᱲᱤ)",
+            "Auto-detect": "Maintain original document language"
+        }
+        
+        # Primary language selection
+        primary_language = st.selectbox(
+            "🎯 Primary Question Language",
+            list(indian_languages.keys()),
             index=0,
-            help="Choose the language for generated questions"
+            format_func=lambda x: indian_languages[x],
+            help="Select the main language for generating questions"
+        )
+        
+        # Bilingual option
+        enable_bilingual = st.checkbox(
+            "🌐 Enable Bilingual Questions",
+            value=False,
+            help="Generate questions in two languages for better understanding"
+        )
+        
+        secondary_language = None
+        if enable_bilingual:
+            available_secondary = [lang for lang in indian_languages.keys() if lang != primary_language and lang != "Auto-detect"]
+            secondary_language = st.selectbox(
+                "🎯 Secondary Language",
+                available_secondary,
+                index=0 if "Hindi" in available_secondary else 0,
+                format_func=lambda x: indian_languages[x],
+                help="Select the secondary language for bilingual questions"
+            )
+        
+        # Build language instruction
+        if enable_bilingual and secondary_language:
+            language_instruction = f"Generate questions in {primary_language} with {secondary_language} translations. Show both languages clearly."
+        elif primary_language == "Auto-detect":
+            language_instruction = "Maintain original document language"
+        else:
+            language_instruction = f"Generate all questions in {primary_language} language only"
+        
+        # Custom Instructions and Comments
+        st.subheader("💬 Custom Instructions & Requirements")
+        
+        # Specific additional comments
+        custom_instructions = st.text_area(
+            "🎯 Specific Instructions for Question Set",
+            placeholder="""Example instructions:
+• Focus on practical applications in real-world scenarios
+• Include current affairs and recent developments
+• Emphasize conceptual understanding over rote learning
+• Add questions that test problem-solving skills
+• Include interdisciplinary connections
+• Focus on [specific topics/chapters]
+• Avoid questions on [specific topics to exclude]
+• Include questions suitable for competitive exams
+• Add industry-relevant scenarios""",
+            height=120,
+            help="Add specific instructions, focus areas, or requirements for your question set"
+        )
+        
+        # Question Style Preferences
+        question_style = st.selectbox(
+            "🎨 Question Presentation Style",
+            [
+                "Academic/Formal Style",
+                "Conversational/Informal Style", 
+                "Examination Board Style",
+                "Interactive/Engaging Style",
+                "Professional/Corporate Style",
+                "Research Paper Style"
+            ],
+            index=0,
+            help="Choose the tone and style for question presentation"
+        )
+        
+        # Question set metadata
+        st.markdown("##### 📋 Question Set Metadata")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            exam_type = st.selectbox(
+                "Exam Type",
+                [
+                    "Regular Assessment",
+                    "Mid-term Examination", 
+                    "Final Examination",
+                    "Competitive Exam Prep",
+                    "Entrance Test",
+                    "Professional Certification",
+                    "Practice Test",
+                    "Mock Exam",
+                    "Placement Test",
+                    "Custom Assessment"
+                ],
+                help="Specify the type of exam/assessment"
+            )
+        
+        with col2:
+            time_limit = st.selectbox(
+                "Suggested Time Limit",
+                [
+                    "30 minutes",
+                    "1 hour", 
+                    "1.5 hours",
+                    "2 hours",
+                    "3 hours",
+                    "No time limit",
+                    "Custom duration"
+                ],
+                index=2,
+                help="Recommended time for completing the question set"
+            )
+        
+        # Subject-specific requirements
+        subject_focus = st.multiselect(
+            "🎓 Subject Focus Areas (Optional)",
+            [
+                "📚 Literature & Language",
+                "🧮 Mathematics & Statistics", 
+                "🔬 Science & Technology",
+                "🏛️ History & Social Studies",
+                "🌍 Geography & Environment",
+                "💼 Business & Economics",
+                "⚖️ Law & Governance",
+                "🎨 Arts & Culture",
+                "🏥 Medical & Health Sciences",
+                "💻 Computer Science & IT",
+                "🔧 Engineering & Technical",
+                "🎭 Philosophy & Ethics"
+            ],
+            help="Select specific subject areas to emphasize (leave empty for general questions)"
         )
         
         # Additional formatting options
@@ -2010,23 +2280,35 @@ if page == "📝 Generate Questions":
                     if pdf_images:
                         st.success(f"✅ Converted {len(pdf_images)} pages to images")
                         
-                        # Generate questions
-                        questions = generate_questions(
-                            pdf_images, 
-                            mcq_count,
-                            short_count,
-                            medium_count,
-                            long_count,
-                            case_study_count,
-                            difficulty_level, 
-                            language_instruction,
-                            include_answers,
-                            include_marks,
-                            uploaded_pattern,
-                            pattern_instructions
-                        )
-                        
-                        if questions:
+                # Prepare enhanced parameters
+                complexity_instruction = ", ".join(complexity_options) if complexity_options else "Standard question formats"
+                bloom_instruction = ", ".join(bloom_levels) if bloom_levels else "Mixed cognitive levels"
+                
+                # Generate questions with enhanced customization
+                questions = generate_questions(
+                    pdf_images, 
+                    mcq_count,
+                    short_count,
+                    medium_count,
+                    long_count,
+                    case_study_count,
+                    difficulty_level, 
+                    language_instruction,
+                    include_answers,
+                    include_marks,
+                    uploaded_pattern,
+                    pattern_instructions,
+                    custom_instructions,
+                    question_style,
+                    complexity_instruction,
+                    bloom_instruction,
+                    exam_type,
+                    time_limit,
+                    subject_focus,
+                    difficulty_details
+                )
+                
+                if questions:
                             # Display results
                             st.markdown("---")
                             st.header("📝 Generated Questions")
@@ -2126,8 +2408,8 @@ if page == "📝 Generate Questions":
                                 else:
                                     st.warning("⚠️ Exam data unavailable")
                                     
-                    else:
-                        st.error("❌ Failed to process PDF. Please try again with a different file.")
+                else:
+                    st.error("❌ Failed to process PDF. Please try again with a different file.")
         else:
             if uploaded_pattern:
                 st.info("✅ Pattern uploaded and ready. You can generate questions now.")
